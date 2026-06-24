@@ -277,8 +277,48 @@ function Machine({ meta, days, jobs }) {
 
 const Empty = () => <div className="note">No data yet. The sync runs 4×/day — check back after the machine has cut.</div>
 
+function DayDetail({ days, jobs, cfg }) {
+  const ymds = days.map((d) => String(d.statDate)).sort()
+  const [iso, setIso] = useState(() => { const s = ymds[ymds.length - 1] || ''; return s ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : '' })
+  const pick = iso.replace(/-/g, '')
+  const d = days.find((x) => String(x.statDate) === pick)
+  const dayJobs = (jobs || []).filter((j) => j.day === pick)
+  const rate = cfg.electricityRate || 14
+  const charge = cfg.chargePerMin || 40
+  return (
+    <div>
+      <h2>Pick a day</h2>
+      <input className="search" type="date" value={iso} onChange={(e) => setIso(e.target.value)} />
+      {!d ? <div className="note">No production recorded on {iso || 'that day'}.</div> : (
+        <>
+          <h2>{prettyYmd(d.statDate)}</h2>
+          <div className="grid">
+            <Card title="Pieces produced" value={fmt(d.pieces || 0)} accent="#34d399" />
+            <Card title="Lengths (runs)" value={fmt(d.runs || 0)} />
+            <Card title="Cutting" value={`${(d.cutTimeH || 0).toFixed(2)} h`} />
+            <Card title="Laser-on" value={`${(d.laserOnH || 0).toFixed(2)} h`} />
+            <Card title="Electricity" value={`${fmt(Math.round(d.kWh || 0))} kWh`} sub={rupee(kWhCost(d.kWh, rate))} />
+            <Card title="Charge (cutting)" value={rupee(((d.cutTime || 0) / 60) * charge)} accent="#34d399" />
+          </div>
+          <h2>Runs that day ({dayJobs.length})</h2>
+          <div className="tbl">
+            <div className="tr th sz4"><span>Size</span><span>Pieces</span><span>Min</span><span>When</span></div>
+            {dayJobs.map((j) => (
+              <div className="tr sz4" key={j.workUuid}>
+                <span className={'szcell' + (j.hasSize ? '' : ' isname')}>{j.sizeKey}</span>
+                <span>{fmt(j.partAmount)}</span><span>{((j.timeTaken || 0) / 60).toFixed(1)}</span>
+                <span>{(j.startTime || '').slice(11, 16)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Jobs', 'By Size', 'Costing', 'Reports', 'Machine']
+const TABS = ['Dashboard', 'Day', 'Jobs', 'By Size', 'Costing', 'Reports', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
@@ -320,6 +360,7 @@ export default function App() {
       )}
       <main>
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} />}
+        {tab === 'Day' && (ready ? <DayDetail days={days} jobs={jobs} cfg={cfg} /> : <Loading />)}
         {tab === 'Jobs' && (ready ? <Jobs jobs={jobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
