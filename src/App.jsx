@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { loadCore, loadJobs } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
-import { ymd, lastCompleteDay } from './lib/period.js'
+import { ymd, lastCompleteDay, periodRange, filterDaysByRange } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
 
 /* ---------- helpers ---------- */
@@ -279,8 +279,10 @@ const Empty = () => <div className="note">No data yet. The sync runs 4×/day —
 
 /* ---------- shell ---------- */
 const TABS = ['Dashboard', 'Jobs', 'By Size', 'Costing', 'Reports', 'Machine']
+const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
+  const [period, setPeriod] = useState('month')
   const [core, setCore] = useState(null)
   const [jobs, setJobs] = useState(null)
   const [err, setErr] = useState('')
@@ -298,17 +300,30 @@ export default function App() {
   const { meta, cfg, days } = core
   const ready = jobs != null
 
+  const todayY = ymd(new Date())
+  const range = periodRange(period, todayY)
+  const vdays = filterDaysByRange(days, range)
+  const vjobs = (jobs || []).filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
+  const showPeriod = ['Dashboard', 'By Size', 'Reports'].includes(tab)
+
   return (
     <div className="app">
       <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
         {!ready && <span className="sync">loading runs…</span>}
       </header>
+      {showPeriod && (
+        <div className="periodbar">
+          {PERIODS.map(([k, l]) => (
+            <button key={k} className={period === k ? 'on' : ''} onClick={() => setPeriod(k)}>{l}</button>
+          ))}
+        </div>
+      )}
       <main>
-        {tab === 'Dashboard' && <Dashboard days={days} cfg={cfg} mo={mo} />}
+        {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} />}
         {tab === 'Jobs' && (ready ? <Jobs jobs={jobs} /> : <Loading />)}
-        {tab === 'By Size' && (ready ? <BySize jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Reports' && <Reports days={days} cfg={cfg} />}
+        {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
         {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
       </main>
       <nav className="tabs">
