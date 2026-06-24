@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
-import { enrichJobs, groupBySize } from './lib/sizemap.js'
+import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 
 /* ---------- helpers ---------- */
 function computeSetup(jobs, setupCfg) {
@@ -322,8 +322,39 @@ function DayDetail({ days, jobs, cfg }) {
   )
 }
 
+function Assign({ jobs, onSaved }) {
+  const files = useMemo(() => unlabelledFiles(jobs), [jobs])
+  const [draft, setDraft] = useState({})
+  const [busy, setBusy] = useState('')
+  const save = async (file) => {
+    const v = (draft[file] || '').trim()
+    if (!v) return
+    setBusy(file)
+    try { await saveSizeMapEntry({ file, sizeKey: v }); onSaved && await onSaved() }
+    finally { setBusy('') }
+  }
+  return (
+    <div>
+      <h2>Fix unlabelled sizes ({files.length})</h2>
+      <div className="note">These runs came from machine file names with no readable size. Type the real size once — it sticks for all past and future runs of that file.</div>
+      {!files.length && <div className="note">Nothing to fix — every run has a size. 🎉</div>}
+      <div className="joblist">
+        {files.map((f) => (
+          <div className="jobcard" key={f.file}>
+            <div className="jobcard-head"><span className="chip warn">{f.file}</span><span className="jobcard-when">{f.runs} runs · {fmt(f.pieces)} pcs</span></div>
+            <div className="quote">
+              <input className="search" placeholder="Real size e.g. 40x40 t2" value={draft[f.file] || ''} onChange={(e) => setDraft({ ...draft, [f.file]: e.target.value })} />
+              <button className="btn" disabled={busy === f.file} onClick={() => save(f.file)}>{busy === f.file ? 'Saving…' : 'Save size'}</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Day', 'Jobs', 'By Size', 'Costing', 'Reports', 'Machine']
+const TABS = ['Dashboard', 'Day', 'Jobs', 'By Size', 'Costing', 'Reports', 'Fix sizes', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
@@ -373,6 +404,7 @@ export default function App() {
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
+        {tab === 'Fix sizes' && (ready ? <Assign jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} /> : <Loading />)}
         {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
       </main>
       <nav className="tabs">

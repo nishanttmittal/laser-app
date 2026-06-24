@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, signInAnonymously } from 'firebase/auth'
-import { getFirestore, collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, query, where } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCK0M-EfmOp9nh1-ZJcrBqT7c4plNxL2FM',
@@ -40,6 +40,12 @@ export async function loadSizeMap() {
   const m = {}
   snap.docs.forEach((d) => { const x = d.data(); if (x.file) m[x.file] = x })
   return m
+}
+
+export async function saveSizeMapEntry({ file, sizeKey }) {
+  await ensureAuth()
+  const id = `${CARD}__${file}`.replace(/[\/#?]/g, '_')
+  await setDoc(doc(db, 'laser_size_map', id), { cardId: CARD, file, sizeKey, updatedAt: Date.now() }, { merge: true })
 }
 
 let _jobs = null
