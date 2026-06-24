@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { loadCore, loadJobs } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
+import { ymd, lastCompleteDay } from './lib/period.js'
+import { kWhCost } from './lib/energy.js'
 
 /* ---------- helpers ---------- */
 function computeSetup(jobs, setupCfg) {
@@ -49,22 +51,28 @@ const Card = ({ title, value, sub, accent }) => (
 /* ---------- tabs ---------- */
 function Dashboard({ days, cfg, mo }) {
   if (!days.length) return <Empty />
-  const latest = days[days.length - 1]
+  const todayY = ymd(new Date())
+  const headline = lastCompleteDay(days, todayY) || days[days.length - 1]
+  const today = days.find((d) => d.statDate === todayY)
   const last14 = days.slice(-14)
   const maxPcs = Math.max(...last14.map((d) => d.pieces || 0), 1)
   const maxCut = Math.max(...last14.map((d) => d.cutTimeH || 0), 0.1)
   const charge = cfg.chargePerMin || 40
-  const cutMin = (latest.cutTime || 0) / 60
+  const rate = cfg.electricityRate || 14
+  const cutMin = (headline.cutTime || 0) / 60
   const kPcs = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n || '')
   return (
     <div>
-      <h2>Latest day — {prettyYmd(latest.statDate)}</h2>
+      <h2>Last full day — {prettyYmd(headline.statDate)}</h2>
+      {today && today.statDate !== headline.statDate && (
+        <div className="todaystrip">Today ({prettyYmd(today.statDate)}, in progress): <b>{fmt(today.pieces || 0)}</b> pcs · {(today.cutTimeH || 0).toFixed(2)} h cutting</div>
+      )}
       <div className="grid">
-        <Card title="Pieces produced" value={fmt(latest.pieces || 0)} accent="#34d399" />
-        <Card title="Lengths (runs)" value={fmt(latest.runs || 0)} />
-        <Card title="Cutting" value={`${(latest.cutTimeH || 0).toFixed(2)} h`} />
-        <Card title="Laser-on" value={`${(latest.laserOnH || 0).toFixed(2)} h`} />
-        <Card title="Cut length" value={`${fmt(latest.cutLengthM || 0)} m`} />
+        <Card title="Pieces produced" value={fmt(headline.pieces || 0)} accent="#34d399" />
+        <Card title="Lengths (runs)" value={fmt(headline.runs || 0)} />
+        <Card title="Cutting" value={`${(headline.cutTimeH || 0).toFixed(2)} h`} />
+        <Card title="Laser-on" value={`${(headline.laserOnH || 0).toFixed(2)} h`} />
+        <Card title="Electricity" value={`${fmt(Math.round(headline.kWh || 0))} kWh`} sub={rupee(kWhCost(headline.kWh, rate))} />
         <Card title="Charge (cutting)" value={rupee(cutMin * charge)} accent="#34d399" />
       </div>
 
