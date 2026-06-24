@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { loadCore, loadJobs } from './firebase'
+import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 
 /* ---------- helpers ---------- */
-const rupee = (n) => 'Rs ' + Math.round(n || 0).toLocaleString('en-IN')
-const fmt = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN'))
-const prettyYmd = (s) => { s = String(s); return `${s.slice(6, 8)}-${s.slice(4, 6)}-${s.slice(0, 4)}` }
 const needsInfo = (s) => /^★/.test(String(s || ''))
 const labelClass = (label, hasSize) => (needsInfo(label) ? 'warn' : (hasSize ? '' : 'isname'))
 
@@ -16,8 +14,6 @@ const chipStyle = (s) => {
   return { background: `hsla(${h},70%,50%,.16)`, color: `hsl(${h},85%,74%)`, borderColor: `hsla(${h},70%,55%,.5)` }
 }
 const dotStyle = (s) => ({ background: needsInfo(s) ? '#f59e0b' : `hsl(${hueFor(s)},80%,62%)` })
-const MON = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const whenStr = (s) => { if (!s) return ''; const [d, t] = String(s).split(' '); const p = d.split('-'); return `${p[2]} ${MON[+p[1]]} · ${(t || '').slice(0, 5)}` }
 
 function computeSetup(jobs, setupCfg) {
   const ordered = [...jobs].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
