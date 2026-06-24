@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { loadCore, loadJobs } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
-import { ymd, lastCompleteDay, periodRange, filterDaysByRange } from './lib/period.js'
+import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
 
 /* ---------- helpers ---------- */
@@ -236,6 +236,8 @@ function Costing({ jobs, cfg, mo }) {
 
 function Reports({ days, cfg }) {
   const charge = cfg.chargePerMin || 40
+  const rate = cfg.electricityRate || 14
+  const months = monthRollup(days)
   const csv = () => {
     const head = 'Date,Laser-on h,Cut h,Cut length m,Pierces,Pieces,Runs,Charge(cutting)\n'
     const body = days.map((d) => [prettyYmd(d.statDate), d.laserOnH || 0, d.cutTimeH || 0, d.cutLengthM || 0, d.pierceCount || 0, d.pieces || 0, d.runs || 0, Math.round(((d.cutTime || 0) / 60) * charge)].join(',')).join('\n')
@@ -244,6 +246,16 @@ function Reports({ days, cfg }) {
   }
   return (
     <div>
+      <h2>Month-wise summary</h2>
+      <div className="tbl">
+        <div className="tr th sz4"><span>Month</span><span>Pieces</span><span>Cut h</span><span>Electricity ₹</span></div>
+        {months.map((m) => (
+          <div className="tr sz4" key={m.ym}>
+            <span>{m.ym}</span><span>{fmt(m.pieces)}</span><span>{m.cutH.toFixed(1)}</span>
+            <span>{rupee(kWhCost(m.kWh, rate))}</span>
+          </div>
+        ))}
+      </div>
       <h2>Day-wise production</h2>
       <div className="note">A full <b>end-of-day PDF</b> is auto-generated daily and sent to your Telegram (WhatsApp once set up). The complete history is also saved on your laptop at <code>Desktop\UNICO-Laser-Reports\</code>.</div>
       <button className="btn" onClick={csv}>⬇ Download all days (CSV)</button>
