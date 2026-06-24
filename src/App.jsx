@@ -3,18 +3,6 @@ import { loadCore, loadJobs } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 
 /* ---------- helpers ---------- */
-const needsInfo = (s) => /^★/.test(String(s || ''))
-const labelClass = (label, hasSize) => (needsInfo(label) ? 'warn' : (hasSize ? '' : 'isname'))
-
-// stable colour per size (hash -> hue) so each size is visually distinct
-const hueFor = (s) => { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
-const chipStyle = (s) => {
-  if (needsInfo(s)) return { background: 'rgba(245,158,11,.15)', color: '#f59e0b', borderColor: 'rgba(245,158,11,.5)' }
-  const h = hueFor(s)
-  return { background: `hsla(${h},70%,50%,.16)`, color: `hsl(${h},85%,74%)`, borderColor: `hsla(${h},70%,55%,.5)` }
-}
-const dotStyle = (s) => ({ background: needsInfo(s) ? '#f59e0b' : `hsl(${hueFor(s)},80%,62%)` })
-
 function computeSetup(jobs, setupCfg) {
   const ordered = [...jobs].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
   let len = 0, dim = 0, lf = null, ls = null
@@ -123,9 +111,9 @@ function Jobs({ jobs }) {
       <input className="search" placeholder="Search size, file, month (e.g. 30x20 or Jun)" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="joblist">
         {rows.map((j) => (
-          <div className="jobcard" key={j.workUuid} style={{ borderLeftColor: dotStyle(j.sizeKey).background }}>
+          <div className="jobcard" key={j.workUuid}>
             <div className="jobcard-head">
-              <span className="chip" style={chipStyle(j.sizeKey)}>{j.sizeKey}</span>
+              <span className={'chip' + (j.hasSize ? '' : ' warn')}>{j.sizeKey}</span>
               <span className="jobcard-when">{whenStr(j.startTime)}</span>
             </div>
             <div className="jobcard-stats">
@@ -157,7 +145,7 @@ function BySize({ jobs, cfg, mo }) {
           const costPc = (spp / 60) * mo.costPerBillMin
           return (
             <div className="tr wide" key={s.sizeKey}>
-              <span className={'szcell ' + labelClass(s.sizeKey, s.hasSize)}><i className="dot" style={dotStyle(s.sizeKey)} />{s.sizeKey}</span>
+              <span className={'szcell' + (s.hasSize ? '' : ' isname')}><i className={'dot' + (s.hasSize ? '' : ' warn')} />{s.sizeKey}</span>
               <span>{fmt(s.runs)}</span>
               <span>{fmt(s.pieces)}</span>
               <span>{spp.toFixed(1)}</span>
