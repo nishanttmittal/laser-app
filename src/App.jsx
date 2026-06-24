@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs } from './firebase'
+import { loadCore, loadJobs, loadSizeMap } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
+import { enrichJobs, groupBySize } from './lib/sizemap.js'
 
 /* ---------- helpers ---------- */
 function computeSetup(jobs, setupCfg) {
@@ -29,14 +30,6 @@ function useMonthly(days, jobs, cfg) {
   }, [days, jobs, cfg])
 }
 
-function bySizeAgg(jobs) {
-  const m = {}
-  for (const j of jobs || []) {
-    const s = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, hasSize: j.hasSize, runs: 0, pieces: 0, sec: 0 })
-    s.runs++; s.pieces += j.partAmount || 0; s.sec += j.timeTaken || 0
-  }
-  return Object.values(m).sort((a, b) => b.pieces - a.pieces)
-}
 function piecesByDay(jobs) {
   const m = {}
   for (const j of jobs || []) m[j.day] = (m[j.day] || 0) + (j.partAmount || 0)
@@ -139,7 +132,7 @@ function Jobs({ jobs }) {
 }
 
 function BySize({ jobs, cfg, mo }) {
-  const rows = bySizeAgg(jobs)
+  const rows = groupBySize(jobs)
   const charge = cfg.chargePerMin || 40
   return (
     <div>
@@ -166,7 +159,7 @@ function BySize({ jobs, cfg, mo }) {
 }
 
 function Costing({ jobs, cfg, mo }) {
-  const sizes = bySizeAgg(jobs)
+  const sizes = groupBySize(jobs).filter((s) => !s.unlabelled)
   const [sizeKey, setSizeKey] = useState('')
   const [qty, setQty] = useState(100)
   const [setupType, setSetupType] = useState('dimension')
@@ -337,14 +330,17 @@ export default function App() {
   const [period, setPeriod] = useState('month')
   const [core, setCore] = useState(null)
   const [jobs, setJobs] = useState(null)
+  const [sizeMap, setSizeMap] = useState({})
   const [err, setErr] = useState('')
 
   useEffect(() => {
     loadCore().then(setCore).catch((e) => setErr(e.message))
     loadJobs().then(setJobs).catch((e) => setErr(e.message))
+    loadSizeMap().then(setSizeMap).catch(() => {})
   }, [])
 
-  const mo = useMonthly(core?.days || [], jobs, core?.cfg || {})
+  const mappedJobs = useMemo(() => enrichJobs(jobs || [], sizeMap), [jobs, sizeMap])
+  const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
 
   if (err) return <div className="app"><div className="note err">Could not load data: {err}</div></div>
   if (!core) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
@@ -355,7 +351,7 @@ export default function App() {
   const todayY = ymd(new Date())
   const range = periodRange(period, todayY)
   const vdays = filterDaysByRange(days, range)
-  const vjobs = (jobs || []).filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
+  const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
   const showPeriod = ['Dashboard', 'By Size', 'Reports'].includes(tab)
 
   return (
@@ -372,10 +368,10 @@ export default function App() {
       )}
       <main>
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} />}
-        {tab === 'Day' && (ready ? <DayDetail days={days} jobs={jobs} cfg={cfg} /> : <Loading />)}
-        {tab === 'Jobs' && (ready ? <Jobs jobs={jobs} /> : <Loading />)}
+        {tab === 'Day' && (ready ? <DayDetail days={days} jobs={mappedJobs} cfg={cfg} /> : <Loading />)}
+        {tab === 'Jobs' && (ready ? <Jobs jobs={mappedJobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Costing' && (ready ? <Costing jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Costing' && (ready ? <Costing jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
         {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
       </main>

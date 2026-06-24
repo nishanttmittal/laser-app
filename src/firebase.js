@@ -34,6 +34,14 @@ export async function loadCore() {
   return { meta: metaSnap.data() || {}, cfg: cfgSnap.data() || {}, days }
 }
 
+export async function loadSizeMap() {
+  await ensureAuth()
+  const snap = await getDocs(query(collection(db, 'laser_size_map'), where('cardId', '==', CARD)))
+  const m = {}
+  snap.docs.forEach((d) => { const x = d.data(); if (x.file) m[x.file] = x })
+  return m
+}
+
 let _jobs = null
 export async function loadJobs() {
   if (_jobs) return _jobs
