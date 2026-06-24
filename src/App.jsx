@@ -5,8 +5,19 @@ import { loadCore, loadJobs } from './firebase'
 const rupee = (n) => 'Rs ' + Math.round(n || 0).toLocaleString('en-IN')
 const fmt = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN'))
 const prettyYmd = (s) => { s = String(s); return `${s.slice(6, 8)}-${s.slice(4, 6)}-${s.slice(0, 4)}` }
-const isOff = (s) => !s || !String(s).trim() || /[一-鿿]/.test(s) || String(s).trim().startsWith('?')
-const star = (s) => (isOff(s) ? '★ ' : '') + (s || '(unnamed)')
+const needsInfo = (s) => /^★/.test(String(s || ''))
+const labelClass = (label, hasSize) => (needsInfo(label) ? 'warn' : (hasSize ? '' : 'isname'))
+
+// stable colour per size (hash -> hue) so each size is visually distinct
+const hueFor = (s) => { let h = 0; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
+const chipStyle = (s) => {
+  if (needsInfo(s)) return { background: 'rgba(245,158,11,.15)', color: '#f59e0b', borderColor: 'rgba(245,158,11,.5)' }
+  const h = hueFor(s)
+  return { background: `hsla(${h},70%,50%,.16)`, color: `hsl(${h},85%,74%)`, borderColor: `hsla(${h},70%,55%,.5)` }
+}
+const dotStyle = (s) => ({ background: needsInfo(s) ? '#f59e0b' : `hsl(${hueFor(s)},80%,62%)` })
+const MON = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const whenStr = (s) => { if (!s) return ''; const [d, t] = String(s).split(' '); const p = d.split('-'); return `${p[2]} ${MON[+p[1]]} · ${(t || '').slice(0, 5)}` }
 
 function computeSetup(jobs, setupCfg) {
   const ordered = [...jobs].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
@@ -35,7 +46,7 @@ function useMonthly(days, jobs, cfg) {
 function bySizeAgg(jobs) {
   const m = {}
   for (const j of jobs || []) {
-    const s = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, runs: 0, pieces: 0, sec: 0 })
+    const s = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, hasSize: j.hasSize, runs: 0, pieces: 0, sec: 0 })
     s.runs++; s.pieces += j.partAmount || 0; s.sec += j.timeTaken || 0
   }
   return Object.values(m).sort((a, b) => b.pieces - a.pieces)
@@ -52,27 +63,38 @@ const Card = ({ title, value, sub, accent }) => (
 )
 
 /* ---------- tabs ---------- */
-function Dashboard({ days, jobs, cfg, mo }) {
+function Dashboard({ days, cfg, mo }) {
   if (!days.length) return <Empty />
   const latest = days[days.length - 1]
-  const pbd = piecesByDay(jobs)
   const last14 = days.slice(-14)
+  const maxPcs = Math.max(...last14.map((d) => d.pieces || 0), 1)
   const maxCut = Math.max(...last14.map((d) => d.cutTimeH || 0), 0.1)
   const charge = cfg.chargePerMin || 40
-  const pcs = pbd[String(latest.statDate)] || 0
   const cutMin = (latest.cutTime || 0) / 60
-  const dayCharge = cutMin * charge
+  const kPcs = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n || '')
   return (
     <div>
       <h2>Latest day — {prettyYmd(latest.statDate)}</h2>
       <div className="grid">
-        <Card title="Pieces" value={fmt(pcs)} />
+        <Card title="Pieces produced" value={fmt(latest.pieces || 0)} accent="#34d399" />
+        <Card title="Lengths (runs)" value={fmt(latest.runs || 0)} />
         <Card title="Cutting" value={`${(latest.cutTimeH || 0).toFixed(2)} h`} />
         <Card title="Laser-on" value={`${(latest.laserOnH || 0).toFixed(2)} h`} />
         <Card title="Cut length" value={`${fmt(latest.cutLengthM || 0)} m`} />
-        <Card title="Pierces" value={fmt(latest.pierceCount || 0)} />
-        <Card title="Charge (cutting)" value={rupee(dayCharge)} accent="#34d399" />
+        <Card title="Charge (cutting)" value={rupee(cutMin * charge)} accent="#34d399" />
       </div>
+
+      <h2>Daily production — last 14 days (pieces)</h2>
+      <div className="bars">
+        {last14.map((d) => (
+          <div className="bar-col" key={d.statDate} title={`${prettyYmd(d.statDate)}: ${fmt(d.pieces || 0)} pcs`}>
+            <div className="bar-v">{kPcs(d.pieces || 0)}</div>
+            <div className="bar prod" style={{ height: `${Math.max(4, ((d.pieces || 0) / maxPcs) * 82)}px` }} />
+            <div className="bar-x">{String(d.statDate).slice(6, 8)}</div>
+          </div>
+        ))}
+      </div>
+
       <h2>Cutting hours — last 14 days</h2>
       <div className="bars">
         {last14.map((d) => (
@@ -82,6 +104,7 @@ function Dashboard({ days, jobs, cfg, mo }) {
           </div>
         ))}
       </div>
+
       <div className="note">
         Cost ≈ <b>{rupee(mo.costPerBillMin)}/billable-min</b> vs charge <b>{rupee(charge)}/min</b>.{' '}
         {mo.costPerBillMin <= charge
@@ -96,25 +119,29 @@ function Jobs({ jobs }) {
   const [q, setQ] = useState('')
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + j.day).toLowerCase().includes(t)).slice(0, 400)
+    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + j.startTime + ' ' + whenStr(j.startTime)).toLowerCase().includes(t)).slice(0, 300)
   }, [jobs, q])
   return (
     <div>
       <h2>Jobs ({fmt((jobs || []).length)} runs)</h2>
-      <input className="search" placeholder="Search size, file, date (e.g. 30x20 or 0623)" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="tbl">
-        <div className="tr th"><span>Date</span><span>Size</span><span>Pcs</span><span>Min</span><span>s/pc</span></div>
+      <input className="search" placeholder="Search size, file, month (e.g. 30x20 or Jun)" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="joblist">
         {rows.map((j) => (
-          <div className="tr" key={j.workUuid}>
-            <span>{prettyYmd(j.day)}</span>
-            <span className={isOff(j.section) ? 'warn' : ''}>{star(j.sizeKey)}</span>
-            <span>{fmt(j.partAmount)}</span>
-            <span>{((j.timeTaken || 0) / 60).toFixed(1)}</span>
-            <span>{j.secPerPiece ?? '-'}</span>
+          <div className="jobcard" key={j.workUuid} style={{ borderLeftColor: dotStyle(j.sizeKey).background }}>
+            <div className="jobcard-head">
+              <span className="chip" style={chipStyle(j.sizeKey)}>{j.sizeKey}</span>
+              <span className="jobcard-when">{whenStr(j.startTime)}</span>
+            </div>
+            <div className="jobcard-stats">
+              <div><b>{fmt(j.partAmount)}</b><span>pieces</span></div>
+              <div><b>{((j.timeTaken || 0) / 60).toFixed(1)}</b><span>min</span></div>
+              <div><b>{j.secPerPiece ?? '-'}</b><span>sec/pc</span></div>
+              <div><b>{fmt(j.pierceCount || 0)}</b><span>pierces</span></div>
+            </div>
           </div>
         ))}
       </div>
-      {rows.length === 400 && <div className="note">Showing first 400. Use search to narrow.</div>}
+      {rows.length === 300 && <div className="note">Showing first 300 — use search to narrow.</div>}
     </div>
   )
 }
@@ -125,7 +152,7 @@ function BySize({ jobs, cfg, mo }) {
   return (
     <div>
       <h2>By size ({rows.length})</h2>
-      <div className="note">★ = name unclear, please tell me the real size.</div>
+      <div className="note">Shows the <b>size</b> when known, otherwise the pipe's <i>file name</i> (italic). ★ = nothing recorded — tell me what it is.</div>
       <div className="tbl">
         <div className="tr th wide"><span>Size</span><span>Lengths</span><span>Pieces</span><span>s/pc</span><span>₹/pc</span><span>Margin/pc</span></div>
         {rows.map((s) => {
@@ -134,7 +161,7 @@ function BySize({ jobs, cfg, mo }) {
           const costPc = (spp / 60) * mo.costPerBillMin
           return (
             <div className="tr wide" key={s.sizeKey}>
-              <span className={isOff(s.sizeKey) ? 'warn' : ''}>{star(s.sizeKey)}</span>
+              <span className={'szcell ' + labelClass(s.sizeKey, s.hasSize)}><i className="dot" style={dotStyle(s.sizeKey)} />{s.sizeKey}</span>
               <span>{fmt(s.runs)}</span>
               <span>{fmt(s.pieces)}</span>
               <span>{spp.toFixed(1)}</span>
@@ -217,26 +244,25 @@ function Costing({ jobs, cfg, mo }) {
   )
 }
 
-function Reports({ days, jobs, cfg }) {
-  const pbd = piecesByDay(jobs)
+function Reports({ days, cfg }) {
   const charge = cfg.chargePerMin || 40
   const csv = () => {
-    const head = 'Date,Laser-on h,Cut h,Cut length m,Pierces,Pieces,Charge(cutting)\n'
-    const body = days.map((d) => [prettyYmd(d.statDate), d.laserOnH || 0, d.cutTimeH || 0, d.cutLengthM || 0, d.pierceCount || 0, pbd[String(d.statDate)] || 0, Math.round(((d.cutTime || 0) / 60) * charge)].join(',')).join('\n')
+    const head = 'Date,Laser-on h,Cut h,Cut length m,Pierces,Pieces,Runs,Charge(cutting)\n'
+    const body = days.map((d) => [prettyYmd(d.statDate), d.laserOnH || 0, d.cutTimeH || 0, d.cutLengthM || 0, d.pierceCount || 0, d.pieces || 0, d.runs || 0, Math.round(((d.cutTime || 0) / 60) * charge)].join(',')).join('\n')
     const blob = new Blob([head + body], { type: 'text/csv' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unico-laser-days.csv'; a.click()
   }
   return (
     <div>
-      <h2>Reports</h2>
+      <h2>Day-wise production</h2>
       <div className="note">A full <b>end-of-day PDF</b> is auto-generated daily and sent to your Telegram (WhatsApp once set up). The complete history is also saved on your laptop at <code>Desktop\UNICO-Laser-Reports\</code>.</div>
       <button className="btn" onClick={csv}>⬇ Download all days (CSV)</button>
       <div className="tbl">
-        <div className="tr th wide"><span>Date</span><span>Laser h</span><span>Cut h</span><span>Pieces</span><span>Cut m</span><span>Charge</span></div>
+        <div className="tr th wide"><span>Date</span><span>Pieces</span><span>Runs</span><span>Cut h</span><span>Cut m</span><span>Charge</span></div>
         {[...days].reverse().map((d) => (
           <div className="tr wide" key={d.statDate}>
-            <span>{prettyYmd(d.statDate)}</span><span>{(d.laserOnH || 0).toFixed(1)}</span><span>{(d.cutTimeH || 0).toFixed(1)}</span>
-            <span>{fmt(pbd[String(d.statDate)] || 0)}</span><span>{fmt(d.cutLengthM || 0)}</span><span>{rupee(((d.cutTime || 0) / 60) * charge)}</span>
+            <span>{prettyYmd(d.statDate)}</span><span style={{ color: '#34d399' }}>{fmt(d.pieces || 0)}</span><span>{fmt(d.runs || 0)}</span>
+            <span>{(d.cutTimeH || 0).toFixed(1)}</span><span>{fmt(d.cutLengthM || 0)}</span><span>{rupee(((d.cutTime || 0) / 60) * charge)}</span>
           </div>
         ))}
       </div>
@@ -288,11 +314,11 @@ export default function App() {
         {!ready && <span className="sync">loading runs…</span>}
       </header>
       <main>
-        {tab === 'Dashboard' && <Dashboard days={days} jobs={jobs || []} cfg={cfg} mo={mo} />}
+        {tab === 'Dashboard' && <Dashboard days={days} cfg={cfg} mo={mo} />}
         {tab === 'Jobs' && (ready ? <Jobs jobs={jobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Reports' && (ready ? <Reports days={days} jobs={jobs} cfg={cfg} /> : <Loading />)}
+        {tab === 'Reports' && <Reports days={days} cfg={cfg} />}
         {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
       </main>
       <nav className="tabs">
