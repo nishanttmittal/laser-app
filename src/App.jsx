@@ -136,21 +136,19 @@ function BySize({ jobs, cfg, mo }) {
   return (
     <div>
       <h2>By size ({rows.length})</h2>
-      <div className="note">Shows the <b>size</b> when known, otherwise the pipe's <i>file name</i> (italic). ★ = nothing recorded — tell me what it is.</div>
+      <div className="note">Shows the <b>size</b> read from the file name. <span className="warn">Unlabelled</span> = file names with no readable size — fix them on the Fix sizes tab.</div>
       <div className="tbl">
-        <div className="tr th wide"><span>Size</span><span>Lengths</span><span>Pieces</span><span>s/pc</span><span>₹/pc</span><span>Margin/pc</span></div>
+        <div className="tr th sz4"><span>Size</span><span>Pieces</span><span>₹/pc</span><span>Margin/pc</span></div>
         {rows.map((s) => {
           const spp = s.pieces ? s.sec / s.pieces : 0
           const chgPc = (spp / 60) * charge
           const costPc = (spp / 60) * mo.costPerBillMin
           return (
-            <div className="tr wide" key={s.sizeKey}>
+            <div className="tr sz4" key={s.sizeKey}>
               <span className={'szcell' + (s.hasSize ? '' : ' isname')}><i className={'dot' + (s.hasSize ? '' : ' warn')} />{s.sizeKey}</span>
-              <span>{fmt(s.runs)}</span>
               <span>{fmt(s.pieces)}</span>
-              <span>{spp.toFixed(1)}</span>
-              <span>{'Rs ' + chgPc.toFixed(2)}</span>
-              <span style={{ color: chgPc - costPc >= 0 ? '#34d399' : '#f87171' }}>{'Rs ' + (chgPc - costPc).toFixed(2)}</span>
+              <span>{'₹' + chgPc.toFixed(2)}</span>
+              <span style={{ color: chgPc - costPc >= 0 ? '#34d399' : '#f87171' }}>{'₹' + (chgPc - costPc).toFixed(2)}</span>
             </div>
           )
         })}
