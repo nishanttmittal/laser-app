@@ -1,0 +1,304 @@
+import React, { useEffect, useMemo, useState } from 'react'
+import { loadCore, loadJobs } from './firebase'
+
+/* ---------- helpers ---------- */
+const rupee = (n) => 'Rs ' + Math.round(n || 0).toLocaleString('en-IN')
+const fmt = (n) => (n == null ? '-' : Number(n).toLocaleString('en-IN'))
+const prettyYmd = (s) => { s = String(s); return `${s.slice(6, 8)}-${s.slice(4, 6)}-${s.slice(0, 4)}` }
+const isOff = (s) => !s || !String(s).trim() || /[一-鿿]/.test(s) || String(s).trim().startsWith('?')
+const star = (s) => (isOff(s) ? '★ ' : '') + (s || '(unnamed)')
+
+function computeSetup(jobs, setupCfg) {
+  const ordered = [...jobs].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
+  let len = 0, dim = 0, lf = null, ls = null
+  for (const j of ordered) {
+    if (j.file !== lf) { if (ls !== null && j.section && j.section === ls) len++; else dim++; lf = j.file; ls = j.section }
+  }
+  return { len, dim, min: len * (setupCfg?.lengthChangeMin ?? 15) + dim * (setupCfg?.dimensionChangeMin ?? 40) }
+}
+
+function useMonthly(days, jobs, cfg) {
+  return useMemo(() => {
+    const dd = days.filter((d) => d.cutTime)
+    const totalCutMin = dd.reduce((a, d) => a + (d.cutTime || 0) / 60, 0)
+    const ds = dd.map((d) => String(d.statDate)).sort()
+    const toD = (s) => new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`)
+    const span = ds.length > 1 ? Math.max(1, (toD(ds[ds.length - 1]) - toD(ds[0])) / 864e5 + 1) : 30
+    const mCut = (totalCutMin / span) * 30
+    const setup = jobs ? computeSetup(jobs, cfg.setup) : { min: 0 }
+    const mSetup = (setup.min / span) * 30
+    const mBill = mCut + mSetup || 1
+    return { mCut, mSetup, mBill, costPerBillMin: (cfg.totalMonthly || 0) / mBill, span }
+  }, [days, jobs, cfg])
+}
+
+function bySizeAgg(jobs) {
+  const m = {}
+  for (const j of jobs || []) {
+    const s = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, runs: 0, pieces: 0, sec: 0 })
+    s.runs++; s.pieces += j.partAmount || 0; s.sec += j.timeTaken || 0
+  }
+  return Object.values(m).sort((a, b) => b.pieces - a.pieces)
+}
+function piecesByDay(jobs) {
+  const m = {}
+  for (const j of jobs || []) m[j.day] = (m[j.day] || 0) + (j.partAmount || 0)
+  return m
+}
+
+/* ---------- small UI ---------- */
+const Card = ({ title, value, sub, accent }) => (
+  <div className="card"><div className="card-t">{title}</div><div className="card-v" style={accent ? { color: accent } : null}>{value}</div>{sub && <div className="card-s">{sub}</div>}</div>
+)
+
+/* ---------- tabs ---------- */
+function Dashboard({ days, jobs, cfg, mo }) {
+  if (!days.length) return <Empty />
+  const latest = days[days.length - 1]
+  const pbd = piecesByDay(jobs)
+  const last14 = days.slice(-14)
+  const maxCut = Math.max(...last14.map((d) => d.cutTimeH || 0), 0.1)
+  const charge = cfg.chargePerMin || 40
+  const pcs = pbd[String(latest.statDate)] || 0
+  const cutMin = (latest.cutTime || 0) / 60
+  const dayCharge = cutMin * charge
+  return (
+    <div>
+      <h2>Latest day — {prettyYmd(latest.statDate)}</h2>
+      <div className="grid">
+        <Card title="Pieces" value={fmt(pcs)} />
+        <Card title="Cutting" value={`${(latest.cutTimeH || 0).toFixed(2)} h`} />
+        <Card title="Laser-on" value={`${(latest.laserOnH || 0).toFixed(2)} h`} />
+        <Card title="Cut length" value={`${fmt(latest.cutLengthM || 0)} m`} />
+        <Card title="Pierces" value={fmt(latest.pierceCount || 0)} />
+        <Card title="Charge (cutting)" value={rupee(dayCharge)} accent="#34d399" />
+      </div>
+      <h2>Cutting hours — last 14 days</h2>
+      <div className="bars">
+        {last14.map((d) => (
+          <div className="bar-col" key={d.statDate} title={`${prettyYmd(d.statDate)}: ${(d.cutTimeH || 0).toFixed(1)}h`}>
+            <div className="bar" style={{ height: `${Math.max(4, ((d.cutTimeH || 0) / maxCut) * 90)}px` }} />
+            <div className="bar-x">{String(d.statDate).slice(6, 8)}</div>
+          </div>
+        ))}
+      </div>
+      <div className="note">
+        Cost ≈ <b>{rupee(mo.costPerBillMin)}/billable-min</b> vs charge <b>{rupee(charge)}/min</b>.{' '}
+        {mo.costPerBillMin <= charge
+          ? 'Setup billed → small positive margin. Raise utilization to widen it.'
+          : 'Below break-even at current utilization — fill the machine or bill more setup.'}
+      </div>
+    </div>
+  )
+}
+
+function Jobs({ jobs }) {
+  const [q, setQ] = useState('')
+  const rows = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + j.day).toLowerCase().includes(t)).slice(0, 400)
+  }, [jobs, q])
+  return (
+    <div>
+      <h2>Jobs ({fmt((jobs || []).length)} runs)</h2>
+      <input className="search" placeholder="Search size, file, date (e.g. 30x20 or 0623)" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="tbl">
+        <div className="tr th"><span>Date</span><span>Size</span><span>Pcs</span><span>Min</span><span>s/pc</span></div>
+        {rows.map((j) => (
+          <div className="tr" key={j.workUuid}>
+            <span>{prettyYmd(j.day)}</span>
+            <span className={isOff(j.section) ? 'warn' : ''}>{star(j.sizeKey)}</span>
+            <span>{fmt(j.partAmount)}</span>
+            <span>{((j.timeTaken || 0) / 60).toFixed(1)}</span>
+            <span>{j.secPerPiece ?? '-'}</span>
+          </div>
+        ))}
+      </div>
+      {rows.length === 400 && <div className="note">Showing first 400. Use search to narrow.</div>}
+    </div>
+  )
+}
+
+function BySize({ jobs, cfg, mo }) {
+  const rows = bySizeAgg(jobs)
+  const charge = cfg.chargePerMin || 40
+  return (
+    <div>
+      <h2>By size ({rows.length})</h2>
+      <div className="note">★ = name unclear, please tell me the real size.</div>
+      <div className="tbl">
+        <div className="tr th wide"><span>Size</span><span>Lengths</span><span>Pieces</span><span>s/pc</span><span>₹/pc</span><span>Margin/pc</span></div>
+        {rows.map((s) => {
+          const spp = s.pieces ? s.sec / s.pieces : 0
+          const chgPc = (spp / 60) * charge
+          const costPc = (spp / 60) * mo.costPerBillMin
+          return (
+            <div className="tr wide" key={s.sizeKey}>
+              <span className={isOff(s.sizeKey) ? 'warn' : ''}>{star(s.sizeKey)}</span>
+              <span>{fmt(s.runs)}</span>
+              <span>{fmt(s.pieces)}</span>
+              <span>{spp.toFixed(1)}</span>
+              <span>{'Rs ' + chgPc.toFixed(2)}</span>
+              <span style={{ color: chgPc - costPc >= 0 ? '#34d399' : '#f87171' }}>{'Rs ' + (chgPc - costPc).toFixed(2)}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function Costing({ jobs, cfg, mo }) {
+  const sizes = bySizeAgg(jobs)
+  const [sizeKey, setSizeKey] = useState('')
+  const [qty, setQty] = useState(100)
+  const [setupType, setSetupType] = useState('dimension')
+  const charge = cfg.chargePerMin || 40
+  const sel = sizes.find((s) => s.sizeKey === sizeKey)
+  const spp = sel && sel.pieces ? sel.sec / sel.pieces : 0
+  const cutMin = (qty * spp) / 60
+  const setupMin = setupType === 'dimension' ? (cfg.setup?.dimensionChangeMin ?? 40) : setupType === 'length' ? (cfg.setup?.lengthChangeMin ?? 15) : 0
+  const stdMin = cutMin + setupMin
+  const isLong = stdMin > (cfg.longJob?.thresholdMin ?? 60)
+  const billMin = isLong ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin
+  const quoteCharge = billMin * charge
+  const quoteCost = billMin * mo.costPerBillMin
+  const f = cfg.monthlyFixed || {}
+  const items = [
+    ['Operator', f.operator], ['Maintenance', f.maintenance], ['Rent', f.rent], ['Consumables', f.consumables],
+    ['Depreciation', cfg.depreciationMonthly], ['Electricity (est)', cfg.electricityMonthly],
+  ]
+  return (
+    <div>
+      <h2>Costing (itemized)</h2>
+      <div className="tbl">
+        {items.map(([k, v]) => <div className="tr" key={k}><span>{k}</span><span>{rupee(v)}</span><span /><span /><span /></div>)}
+        <div className="tr th"><span>Total / month</span><span>{rupee(cfg.totalMonthly)}</span><span /><span /><span /></div>
+      </div>
+      <div className="grid">
+        <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
+        <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
+        <Card title="Setup (length / dim)" value={`${cfg.setup?.lengthChangeMin ?? 15} / ${cfg.setup?.dimensionChangeMin ?? 40} min`} />
+        <Card title="Long job +20% over" value={`${cfg.longJob?.thresholdMin ?? 60} min`} />
+      </div>
+
+      <h2>Quote a job</h2>
+      <div className="quote">
+        <label>Size
+          <select value={sizeKey} onChange={(e) => setSizeKey(e.target.value)}>
+            <option value="">— pick a size —</option>
+            {sizes.map((s) => <option key={s.sizeKey} value={s.sizeKey}>{s.sizeKey} ({s.pieces} pcs history)</option>)}
+          </select>
+        </label>
+        <label>Quantity (pieces)
+          <input type="number" value={qty} onChange={(e) => setQty(+e.target.value || 0)} />
+        </label>
+        <label>Setup
+          <select value={setupType} onChange={(e) => setSetupType(e.target.value)}>
+            <option value="dimension">Dimension change (+{cfg.setup?.dimensionChangeMin ?? 40}m)</option>
+            <option value="length">Length change (+{cfg.setup?.lengthChangeMin ?? 15}m)</option>
+            <option value="none">No setup</option>
+          </select>
+        </label>
+      </div>
+      {sel ? (
+        <div className="tbl">
+          <div className="tr"><span>Avg sec/piece (history)</span><span>{spp.toFixed(1)} s</span><span /><span /><span /></div>
+          <div className="tr"><span>Cutting time</span><span>{cutMin.toFixed(1)} min</span><span /><span /><span /></div>
+          <div className="tr"><span>Setup</span><span>{setupMin} min</span><span /><span /><span /></div>
+          <div className="tr"><span>Standard time</span><span>{stdMin.toFixed(1)} min</span><span /><span /><span /></div>
+          {isLong && <div className="tr"><span>Long-job +{cfg.longJob?.bufferPct ?? 20}%</span><span>{billMin.toFixed(1)} min</span><span /><span /><span /></div>}
+          <div className="tr th"><span>Quote (charge)</span><span style={{ color: '#34d399' }}>{rupee(quoteCharge)}</span><span /><span /><span /></div>
+          <div className="tr"><span>Est. cost</span><span>{rupee(quoteCost)}</span><span /><span /><span /></div>
+          <div className="tr"><span>Est. margin</span><span style={{ color: quoteCharge - quoteCost >= 0 ? '#34d399' : '#f87171' }}>{rupee(quoteCharge - quoteCost)}</span><span /><span /><span /></div>
+        </div>
+      ) : <div className="note">Pick a size to estimate a quote (uses that size's real average cutting speed).</div>}
+    </div>
+  )
+}
+
+function Reports({ days, jobs, cfg }) {
+  const pbd = piecesByDay(jobs)
+  const charge = cfg.chargePerMin || 40
+  const csv = () => {
+    const head = 'Date,Laser-on h,Cut h,Cut length m,Pierces,Pieces,Charge(cutting)\n'
+    const body = days.map((d) => [prettyYmd(d.statDate), d.laserOnH || 0, d.cutTimeH || 0, d.cutLengthM || 0, d.pierceCount || 0, pbd[String(d.statDate)] || 0, Math.round(((d.cutTime || 0) / 60) * charge)].join(',')).join('\n')
+    const blob = new Blob([head + body], { type: 'text/csv' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unico-laser-days.csv'; a.click()
+  }
+  return (
+    <div>
+      <h2>Reports</h2>
+      <div className="note">A full <b>end-of-day PDF</b> is auto-generated daily and sent to your Telegram (WhatsApp once set up). The complete history is also saved on your laptop at <code>Desktop\UNICO-Laser-Reports\</code>.</div>
+      <button className="btn" onClick={csv}>⬇ Download all days (CSV)</button>
+      <div className="tbl">
+        <div className="tr th wide"><span>Date</span><span>Laser h</span><span>Cut h</span><span>Pieces</span><span>Cut m</span><span>Charge</span></div>
+        {[...days].reverse().map((d) => (
+          <div className="tr wide" key={d.statDate}>
+            <span>{prettyYmd(d.statDate)}</span><span>{(d.laserOnH || 0).toFixed(1)}</span><span>{(d.cutTimeH || 0).toFixed(1)}</span>
+            <span>{fmt(pbd[String(d.statDate)] || 0)}</span><span>{fmt(d.cutLengthM || 0)}</span><span>{rupee(((d.cutTime || 0) / 60) * charge)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Machine({ meta, days, jobs }) {
+  const rows = [
+    ['Name', meta.nickname], ['Model', meta.laserModel], ['Power', (meta.laserPower || '') + ' W'],
+    ['Range', meta.range], ['Serial', meta.serial], ['Software', `${meta.appName || ''} ${meta.appVer || ''}`],
+    ['Days tracked', days.length], ['Runs tracked', (jobs || []).length],
+  ]
+  return (
+    <div>
+      <h2>Machine</h2>
+      <div className="tbl">{rows.map(([k, v]) => <div className="tr" key={k}><span>{k}</span><span>{v || '-'}</span><span /><span /><span /></div>)}</div>
+      <div className="note">Data auto-syncs 4×/day from BOCHU IoT and is archived permanently on your laptop (kept beyond BOCHU's 3-month limit).</div>
+    </div>
+  )
+}
+
+const Empty = () => <div className="note">No data yet. The sync runs 4×/day — check back after the machine has cut.</div>
+
+/* ---------- shell ---------- */
+const TABS = ['Dashboard', 'Jobs', 'By Size', 'Costing', 'Reports', 'Machine']
+export default function App() {
+  const [tab, setTab] = useState('Dashboard')
+  const [core, setCore] = useState(null)
+  const [jobs, setJobs] = useState(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    loadCore().then(setCore).catch((e) => setErr(e.message))
+    loadJobs().then(setJobs).catch((e) => setErr(e.message))
+  }, [])
+
+  const mo = useMonthly(core?.days || [], jobs, core?.cfg || {})
+
+  if (err) return <div className="app"><div className="note err">Could not load data: {err}</div></div>
+  if (!core) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
+
+  const { meta, cfg, days } = core
+  const ready = jobs != null
+
+  return (
+    <div className="app">
+      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
+        {!ready && <span className="sync">loading runs…</span>}
+      </header>
+      <main>
+        {tab === 'Dashboard' && <Dashboard days={days} jobs={jobs || []} cfg={cfg} mo={mo} />}
+        {tab === 'Jobs' && (ready ? <Jobs jobs={jobs} /> : <Loading />)}
+        {tab === 'By Size' && (ready ? <BySize jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Costing' && (ready ? <Costing jobs={jobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Reports' && (ready ? <Reports days={days} jobs={jobs} cfg={cfg} /> : <Loading />)}
+        {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
+      </main>
+      <nav className="tabs">
+        {TABS.map((t) => <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}
+      </nav>
+    </div>
+  )
+}
+const Loading = () => <div className="loader">Loading runs…</div>
