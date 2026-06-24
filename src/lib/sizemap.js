@@ -7,8 +7,8 @@ export function deriveSize(job) {
   const base = noExt(job.fileName || job.file || '');
   const thk = job.thickness;
   const tsuf = (thk != null && thk !== '') ? ` t${thk}` : '';
-  // dimensions joined by x / × / *
-  const dim = base.match(/(\d+(?:\.\d+)?)\s*(?:[xX×*]\s*(\d+(?:\.\d+)?)\s*)+/);
+  // dimensions joined by x / × / * (tolerate a "mm" unit between number and separator)
+  const dim = base.match(/(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:[xX×*]\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*)+/i);
   if (dim) {
     const nums = (dim[0].match(/\d+(?:\.\d+)?/g) || []).map(Number);
     let key;

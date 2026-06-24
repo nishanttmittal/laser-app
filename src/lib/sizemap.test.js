@@ -26,6 +26,10 @@ test('deriveSize: 2-number name stays AxB even when one is large', () => {
   assert.deepEqual(deriveSize({ file: '1900x400step.zzx', thickness: 1 }),
     { sizeKey: '1900x400 t1', hasSize: true });
 });
+test('deriveSize: "NNmmX MMMM" dimension extracts despite mm unit', () => {
+  assert.deepEqual(deriveSize({ file: 'Circular Tube 76mmX1002.zx' }),
+    { sizeKey: '76x1002', hasSize: true });
+});
 test('deriveSize: lone number wrapped in words stays Unlabelled', () => {
   assert.deepEqual(deriveSize({ file: '17 set barstool.zzx' }),
     { sizeKey: '17 set barstool', hasSize: false });
