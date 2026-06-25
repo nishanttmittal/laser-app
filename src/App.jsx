@@ -71,6 +71,30 @@ function Dashboard({ days, cfg, mo, meta }) {
         <Card title="Charge (cutting)" value={rupee(cutMin * charge)} accent="#34d399" />
       </div>
 
+      {headline.powerOnPct != null ? (
+        <>
+          <h2>Utilization — {prettyYmd(headline.statDate)}</h2>
+          <div className="grid">
+            <Card title="Powered on" value={`${headline.powerOnPct}%`} sub={`${(headline.runningH || 0).toFixed(1)} h of 24`} accent={headline.powerOnPct < 30 ? '#f59e0b' : '#34d399'} />
+            <Card title="Cutting (of on-time)" value={`${headline.workUtilPct}%`} sub={`${(headline.workH || 0).toFixed(1)} h working`} accent={headline.workUtilPct < 50 ? '#f59e0b' : '#34d399'} />
+            <Card title="Offline" value={`${(headline.offlineH || 0).toFixed(1)} h`} sub={`${(24 - (headline.offlineH || 0)).toFixed(1)} h online`} />
+            <Card title="Alarms" value={fmt(headline.alarmCount || 0)} sub={`${(headline.alarmPeriodH || 0).toFixed(2)} h`} accent={(headline.alarmCount || 0) > 0 ? '#f87171' : null} />
+          </div>
+          <h2>Powered-on rate — last 14 days</h2>
+          <div className="bars">
+            {last14.map((d) => (
+              <div className="bar-col" key={d.statDate} title={`${prettyYmd(d.statDate)}: ${d.powerOnPct ?? '—'}% on · ${d.workUtilPct ?? '—'}% cutting`}>
+                <div className="bar-v">{d.powerOnPct != null ? Math.round(d.powerOnPct) : ''}</div>
+                <div className="bar" style={{ height: `${Math.max(4, ((d.powerOnPct || 0) / 100) * 90)}px`, background: (d.powerOnPct || 0) < 30 && d.powerOnPct != null ? '#f59e0b' : undefined }} />
+                <div className="bar-x">{String(d.statDate).slice(6, 8)}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="note">Utilization (powered-on %, cutting %, offline hours) is syncing — appears after the next nightly data pull.</div>
+      )}
+
       <h2>Daily production — last 14 days (pieces)</h2>
       <div className="bars">
         {last14.map((d) => (
