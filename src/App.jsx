@@ -4,7 +4,7 @@ import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
-import { utilSummary, stateLabel } from './lib/util.js'
+import { periodUtil, stateLabel } from './lib/util.js'
 
 /* ---------- helpers ---------- */
 function computeSetup(jobs, setupCfg) {
@@ -27,7 +27,15 @@ function useMonthly(days, jobs, cfg) {
     const setup = jobs ? computeSetup(jobs, cfg.setup) : { min: 0 }
     const mSetup = (setup.min / span) * 30
     const mBill = mCut + mSetup || 1
-    return { mCut, mSetup, mBill, costPerBillMin: (cfg.totalMonthly || 0) / mBill, span }
+    // Monthly electricity from REAL kWh on laser_days (calibrated to the meter), normalized
+    // to 30 days — replaces the old static estimate so Costing == Dashboard.
+    const rate = cfg.electricityRate || 14
+    const totalKWh = dd.reduce((a, d) => a + (d.kWh || 0), 0)
+    const mElec = Math.round(((totalKWh / span) * 30) * rate)
+    const f = cfg.monthlyFixed || {}
+    const fixedExclElec = (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0)
+    const totalMonthly = fixedExclElec + mElec
+    return { mCut, mSetup, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly }
   }, [days, jobs, cfg])
 }
 
@@ -67,7 +75,7 @@ function Dashboard({ days, cfg, mo, meta }) {
         <Card title="Lengths (runs)" value={fmt(headline.runs || 0)} />
         <Card title="Cutting" value={`${(headline.cutTimeH || 0).toFixed(2)} h`} />
         <Card title="Laser-on" value={`${(headline.laserOnH || 0).toFixed(2)} h`} />
-        <Card title="Electricity" value={`${fmt(Math.round(headline.kWh || 0))} kWh`} sub={rupee(kWhCost(headline.kWh, rate))} />
+        <Card title="Electricity" value={`${fmt(Math.round(headline.kWh || 0))} kWh`} sub={`${rupee(kWhCost(headline.kWh, rate))} · ${headline.kWhSource === 'meter-actual' ? 'actual' : 'est'}`} />
         <Card title="Charge (cutting)" value={rupee(cutMin * charge)} accent="#34d399" />
       </div>
 
@@ -202,14 +210,14 @@ function Costing({ jobs, cfg, mo }) {
   const f = cfg.monthlyFixed || {}
   const items = [
     ['Operator', f.operator], ['Maintenance', f.maintenance], ['Rent', f.rent], ['Consumables', f.consumables],
-    ['Depreciation', cfg.depreciationMonthly], ['Electricity (est)', cfg.electricityMonthly],
+    ['Depreciation', cfg.depreciationMonthly], ['Electricity (from real kWh)', mo.mElec],
   ]
   return (
     <div>
       <h2>Costing (itemized)</h2>
       <div className="tbl">
         {items.map(([k, v]) => <div className="tr" key={k}><span>{k}</span><span>{rupee(v)}</span><span /><span /><span /></div>)}
-        <div className="tr th"><span>Total / month</span><span>{rupee(cfg.totalMonthly)}</span><span /><span /><span /></div>
+        <div className="tr th"><span>Total / month</span><span>{rupee(mo.totalMonthly)}</span><span /><span /><span /></div>
       </div>
       <div className="grid">
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
@@ -328,7 +336,7 @@ function DayDetail({ days, jobs, cfg }) {
             <Card title="Lengths (runs)" value={fmt(d.runs || 0)} />
             <Card title="Cutting" value={`${(d.cutTimeH || 0).toFixed(2)} h`} />
             <Card title="Laser-on" value={`${(d.laserOnH || 0).toFixed(2)} h`} />
-            <Card title="Electricity" value={`${fmt(Math.round(d.kWh || 0))} kWh`} sub={rupee(kWhCost(d.kWh, rate))} />
+            <Card title="Electricity" value={`${fmt(Math.round(d.kWh || 0))} kWh`} sub={`${rupee(kWhCost(d.kWh, rate))} · ${d.kWhSource === 'meter-actual' ? 'actual' : 'est'}`} />
             <Card title="Charge (cutting)" value={rupee(((d.cutTime || 0) / 60) * charge)} accent="#34d399" />
           </div>
           <h2>Runs that day ({dayJobs.length})</h2>
@@ -386,33 +394,34 @@ const StatusStrip = ({ meta }) => {
 
 function Utilization({ days, meta }) {
   if (!days.length) return <Empty />
-  const u = utilSummary(days)
+  const u = periodUtil(days)
+  if (!u.nDays) return <div><StatusStrip meta={meta} /><div className="note">No utilization data for this period yet — it fills in nightly from the machine's on/off timeline.</div></div>
+  const total = u.runningH + u.offlineH || 1
   const bar = [
-    { label: 'Lasing', h: u.laserOnH, cls: 'good' },
-    { label: 'Idle', h: u.idleH, cls: 'warn' },
+    { label: 'Cutting', h: u.workH, cls: 'good' },
+    { label: 'Idle (on)', h: u.idleH, cls: 'warn' },
+    { label: 'Offline', h: u.offlineH, cls: 'mut' },
   ]
-  const total = u.activeH || 1
   return (
     <div>
       <StatusStrip meta={meta} />
-      <h2>Utilization (selected period)</h2>
+      <h2>Utilization — {u.nDays} day{u.nDays > 1 ? 's' : ''} in view</h2>
       <div className="grid">
-        <Card title="Laser-on" value={`${u.laserOnH.toFixed(2)} h`} accent="#34d399" />
-        <Card title="Idle (on, not cutting)" value={`${u.idleH.toFixed(2)} h`} accent="#f59e0b" />
-        <Card title="Laser-utilization" value={`${u.laserUtilPct.toFixed(0)}%`} sub="of on-time spent lasing" accent={u.laserUtilPct < 40 ? '#f87171' : '#34d399'} />
-        <Card title="Alarm time" value={`${u.alarmMin.toFixed(1)} min`} />
+        <Card title="Powered on" value={`${u.powerOnPct}%`} sub={`${u.runningH} h of ${u.nDays * 24} h`} accent={u.powerOnPct < 30 ? '#f59e0b' : '#34d399'} />
+        <Card title="Cutting (of on-time)" value={`${u.workUtilPct}%`} sub={`${u.workH} h cutting`} accent={u.workUtilPct < 50 ? '#f59e0b' : '#34d399'} />
+        <Card title="Offline" value={`${u.offlineH} h`} sub={`idle ${u.idleH} h`} />
+        <Card title="Alarms" value={fmt(u.alarmCount)} sub={`${u.alarmH} h`} accent={u.alarmCount > 0 ? '#f87171' : null} />
       </div>
-      <h2>On-time split</h2>
+      <h2>Where the time went</h2>
       <div className="splitbar">
         {bar.map((b) => b.h > 0 && (
-          <div key={b.label} className={'seg ' + b.cls} style={{ width: `${(b.h / total) * 100}%` }} title={`${b.label}: ${b.h.toFixed(2)} h`}>
+          <div key={b.label} className={'seg ' + b.cls} style={{ width: `${(b.h / total) * 100}%` }} title={`${b.label}: ${b.h} h`}>
             {(b.h / total) > 0.12 ? b.label : ''}
           </div>
         ))}
       </div>
       <div className="note">
-        Of the time the machine was on, <b>{u.laserUtilPct.toFixed(0)}%</b> was actually cutting; the rest was idle.
-        {' '}Real <i>electricity, material, offline time and alarm count</i> need BOCHU to enable them for your API account — until then this view uses what your role can read.
+        Over this period the machine was <b>powered on {u.powerOnPct}%</b> of the time, and of that on-time only <b>{u.workUtilPct}%</b> was actually cutting. The rest is idle or off — that gap is your spare capacity (and fixed cost) to fill.
       </div>
     </div>
   )
