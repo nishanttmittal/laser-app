@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#0b0f15"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.5" fill="none" stroke="#1e2a3a" stroke-width="1.5"/>
+  <!-- U monogram in UNICO cyan -->
+  <path d="M20 16 v18 a12 12 0 0 0 24 0 V16" fill="none" stroke="#38bdf8" stroke-width="6.5" stroke-linecap="round"/>
+  <!-- laser beam + spark -->
+  <line x1="32" y1="44" x2="32" y2="54" stroke="#34d399" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="55.5" r="3" fill="#34d399"/>
+</svg>
