@@ -113,4 +113,23 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   padding: 9px 12px; font-size: 13px; color: var(--mut); margin: 0 0 12px; }
 .todaystrip b { color: var(--txt); }
 
+/* live machine-status strip */
+.statusstrip { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px;
+  font-size: 13px; color: var(--mut); margin: 2px 0 12px; background: var(--panel2); border: 1px solid var(--line); }
+.statusstrip b { color: var(--txt); }
+.statusstrip .dotlive { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: 0 0 auto; }
+.statusstrip.good .dotlive { background: var(--green); box-shadow: 0 0 0 3px rgba(52,211,153,.18); }
+.statusstrip.warn .dotlive { background: var(--amber); }
+.statusstrip.bad .dotlive { background: var(--red); }
+.statusstrip.good b { color: var(--green); }
+.statusstrip.bad b { color: var(--red); }
+
+/* on-time split bar */
+.splitbar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--panel2);
+  border: 1px solid var(--line); }
+.splitbar .seg { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+  color: #04121f; white-space: nowrap; min-width: 0; }
+.splitbar .seg.good { background: var(--green); }
+.splitbar .seg.warn { background: var(--amber); }
+
 .loader { text-align: center; color: var(--mut); padding: 48px 0; font-size: 14px; }

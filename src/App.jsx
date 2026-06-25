@@ -4,6 +4,7 @@ import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
+import { utilSummary, stateLabel } from './lib/util.js'
 
 /* ---------- helpers ---------- */
 function computeSetup(jobs, setupCfg) {
@@ -42,7 +43,7 @@ const Card = ({ title, value, sub, accent }) => (
 )
 
 /* ---------- tabs ---------- */
-function Dashboard({ days, cfg, mo }) {
+function Dashboard({ days, cfg, mo, meta }) {
   if (!days.length) return <Empty />
   const todayY = ymd(new Date())
   const headline = lastCompleteDay(days, todayY) || days[days.length - 1]
@@ -56,6 +57,7 @@ function Dashboard({ days, cfg, mo }) {
   const kPcs = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n || '')
   return (
     <div>
+      <StatusStrip meta={meta} />
       <h2>Last full day — {prettyYmd(headline.statDate)}</h2>
       {today && today.statDate !== headline.statDate && (
         <div className="todaystrip">Today ({prettyYmd(today.statDate)}, in progress): <b>{fmt(today.pieces || 0)}</b> pcs · {(today.cutTimeH || 0).toFixed(2)} h cutting</div>
@@ -353,8 +355,47 @@ function Assign({ jobs, onSaved }) {
   )
 }
 
+const StatusStrip = ({ meta }) => {
+  const s = stateLabel(meta && meta.deviceState)
+  return <div className={'statusstrip ' + s.tone}><span className="dotlive" />Machine now: <b>{s.text}</b></div>
+}
+
+function Utilization({ days, meta }) {
+  if (!days.length) return <Empty />
+  const u = utilSummary(days)
+  const bar = [
+    { label: 'Lasing', h: u.laserOnH, cls: 'good' },
+    { label: 'Idle', h: u.idleH, cls: 'warn' },
+  ]
+  const total = u.activeH || 1
+  return (
+    <div>
+      <StatusStrip meta={meta} />
+      <h2>Utilization (selected period)</h2>
+      <div className="grid">
+        <Card title="Laser-on" value={`${u.laserOnH.toFixed(2)} h`} accent="#34d399" />
+        <Card title="Idle (on, not cutting)" value={`${u.idleH.toFixed(2)} h`} accent="#f59e0b" />
+        <Card title="Laser-utilization" value={`${u.laserUtilPct.toFixed(0)}%`} sub="of on-time spent lasing" accent={u.laserUtilPct < 40 ? '#f87171' : '#34d399'} />
+        <Card title="Alarm time" value={`${u.alarmMin.toFixed(1)} min`} />
+      </div>
+      <h2>On-time split</h2>
+      <div className="splitbar">
+        {bar.map((b) => b.h > 0 && (
+          <div key={b.label} className={'seg ' + b.cls} style={{ width: `${(b.h / total) * 100}%` }} title={`${b.label}: ${b.h.toFixed(2)} h`}>
+            {(b.h / total) > 0.12 ? b.label : ''}
+          </div>
+        ))}
+      </div>
+      <div className="note">
+        Of the time the machine was on, <b>{u.laserUtilPct.toFixed(0)}%</b> was actually cutting; the rest was idle.
+        {' '}Real <i>electricity, material, offline time and alarm count</i> need BOCHU to enable them for your API account — until then this view uses what your role can read.
+      </div>
+    </div>
+  )
+}
+
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Day', 'Jobs', 'By Size', 'Costing', 'Reports', 'Fix sizes', 'Machine']
+const TABS = ['Dashboard', 'Day', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Reports', 'Fix sizes', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
@@ -383,7 +424,7 @@ export default function App() {
   const range = periodRange(period, todayY)
   const vdays = filterDaysByRange(days, range)
   const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
-  const showPeriod = ['Dashboard', 'By Size', 'Reports'].includes(tab)
+  const showPeriod = ['Dashboard', 'By Size', 'Reports', 'Utilization'].includes(tab)
 
   return (
     <div className="app">
@@ -398,8 +439,9 @@ export default function App() {
         </div>
       )}
       <main>
-        {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} />}
+        {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Day' && (ready ? <DayDetail days={days} jobs={mappedJobs} cfg={cfg} /> : <Loading />)}
+        {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Jobs' && (ready ? <Jobs jobs={mappedJobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
