@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, signInAnonymously } from 'firebase/auth'
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth'
 import { getFirestore, collection, getDocs, doc, getDoc, setDoc, query, where } from 'firebase/firestore'
 import { cutoffYmd, needFullRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
 
@@ -15,17 +15,34 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 export const db = getFirestore(app)
 const auth = getAuth(app)
+const provider = new GoogleAuthProvider()
+provider.setCustomParameters({ prompt: 'select_account' })
 
-let signedIn = null
-export function ensureAuth() {
-  if (!signedIn) signedIn = signInAnonymously(auth).catch((e) => { console.error('auth', e); throw e })
-  return signedIn
+// Costing/margins are competitively sensitive — require a Google login on an allowlist
+// (bootstrap owner + active emails in apps/laser/users). No anonymous access.
+const BOOTSTRAP = ['nspenterprises24@gmail.com']
+export const onAuth = (cb) => onAuthStateChanged(auth, cb)
+export async function signInWithGoogle() {
+  try { return await signInWithPopup(auth, provider) }
+  catch (e) {
+    if (['auth/popup-blocked', 'auth/cancelled-popup-request', 'auth/operation-not-supported-in-this-environment'].includes(e?.code)) {
+      const { signInWithRedirect } = await import('firebase/auth')
+      return signInWithRedirect(auth, provider)
+    }
+    throw e
+  }
+}
+export const signOutUser = () => signOut(auth)
+export async function isAllowed(user) {
+  const email = (user && user.email || '').toLowerCase()
+  if (!email) return false
+  if (BOOTSTRAP.includes(email)) return true
+  try { const s = await getDoc(doc(db, 'apps', 'laser', 'users', email)); return !!(s.exists() && s.data().active) } catch { return false }
 }
 
 export const CARD = '250811133266'
 
 export async function loadCore() {
-  await ensureAuth()
   const [metaSnap, cfgSnap, daysSnap] = await Promise.all([
     getDoc(doc(db, 'laser_meta', CARD)),
     getDoc(doc(db, 'laser_config', 'settings')),
@@ -36,7 +53,6 @@ export async function loadCore() {
 }
 
 export async function loadSizeMap() {
-  await ensureAuth()
   const snap = await getDocs(query(collection(db, 'laser_size_map'), where('cardId', '==', CARD)))
   const m = {}
   snap.docs.forEach((d) => { const x = d.data(); if (x.file) m[x.file] = x })
@@ -44,7 +60,6 @@ export async function loadSizeMap() {
 }
 
 export async function saveSizeMapEntry({ file, sizeKey }) {
-  await ensureAuth()
   const id = `${CARD}__${file}`.replace(/[\/#?]/g, '_')
   await setDoc(doc(db, 'laser_size_map', id), { cardId: CARD, file, sizeKey, updatedAt: Date.now() }, { merge: true })
 }
@@ -70,7 +85,6 @@ async function fetchRecentJobs() {
 let _jobs = null
 export async function loadJobs() {
   if (_jobs) return _jobs
-  await ensureAuth()
   const now = Date.now()
   const meta = lsGet(META_KEY)
   const cache = lsGet(CACHE_KEY) || []

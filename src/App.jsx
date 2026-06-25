@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, isAllowed } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
@@ -468,6 +468,27 @@ function Utilization({ days, meta }) {
 /* ---------- shell ---------- */
 const TABS = ['Dashboard', 'Day', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Reports', 'Fix sizes', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
+function Login() {
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="app"><div className="login">
+      <div><span className="logo">UNICO</span> <span className="ttl">Laser</span></div>
+      <p>Production, utilization & costing — sign in to view.</p>
+      <button className="btn wa" disabled={busy} onClick={async () => { setBusy(true); try { await signInWithGoogle() } catch (e) { alert(e.message); setBusy(false) } }}>{busy ? 'Opening…' : 'Sign in with Google'}</button>
+    </div></div>
+  )
+}
+function Unauthorized({ email }) {
+  return (
+    <div className="app"><div className="login">
+      <div><span className="logo">UNICO</span> <span className="ttl">Laser</span></div>
+      <p className="err"><b>{email}</b> isn't authorized for this app.</p>
+      <p className="note">Ask the admin to add your email, then sign in again.</p>
+      <button className="btn" onClick={signOutUser}>Sign out</button>
+    </div></div>
+  )
+}
+
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
   const [period, setPeriod] = useState('month')
@@ -475,16 +496,24 @@ export default function App() {
   const [jobs, setJobs] = useState(null)
   const [sizeMap, setSizeMap] = useState({})
   const [err, setErr] = useState('')
+  const [user, setUser] = useState(undefined) // undefined = checking, null = signed out
+  const [allowed, setAllowed] = useState(false)
+
+  useEffect(() => onAuth(async (u) => { setUser(u || null); setAllowed(u ? await isAllowed(u) : false) }), [])
 
   useEffect(() => {
+    if (!allowed) return
     loadCore().then(setCore).catch((e) => setErr(e.message))
     loadJobs().then(setJobs).catch((e) => setErr(e.message))
     loadSizeMap().then(setSizeMap).catch(() => {})
-  }, [])
+  }, [allowed])
 
   const mappedJobs = useMemo(() => enrichJobs(jobs || [], sizeMap), [jobs, sizeMap])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
 
+  if (user === undefined) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
+  if (!user) return <Login />
+  if (!allowed) return <Unauthorized email={user.email} />
   if (err) return <div className="app"><div className="note err">Could not load data: {err}</div></div>
   if (!core) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
 
@@ -501,6 +530,7 @@ export default function App() {
     <div className="app">
       <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
         {!ready && <span className="sync">loading runs…</span>}
+        <button className="signout" onClick={signOutUser} title="Sign out">Sign out</button>
       </header>
       {showPeriod && (
         <div className="periodbar">

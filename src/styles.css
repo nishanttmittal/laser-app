@@ -147,5 +147,10 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .hero-stats b { color: var(--txt); font-family: var(--mono); }
 .hero-note { margin-top: 10px; font-size: 12px; color: var(--faint); line-height: 1.45; }
 .btn.wa { background: #25D366; color: #04121f; border-color: #25D366; font-weight: 700; margin-top: 12px; }
+.login { max-width: 360px; margin: 18vh auto 0; padding: 24px; text-align: center; }
+.login p { color: var(--mut); font-size: 14px; line-height: 1.5; margin: 14px 0; }
+.login .err { color: var(--red); }
+.signout { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--mut);
+  font-size: 11px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
 
 .loader { text-align: center; color: var(--mut); padding: 48px 0; font-size: 14px; }
