@@ -35,7 +35,7 @@ function useMonthly(days, jobs, cfg) {
     const f = cfg.monthlyFixed || {}
     const fixedExclElec = (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0)
     const totalMonthly = fixedExclElec + mElec
-    return { mCut, mSetup, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly }
+    return { mCut, mSetup, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec }
   }, [days, jobs, cfg])
 }
 
@@ -63,9 +63,28 @@ function Dashboard({ days, cfg, mo, meta }) {
   const rate = cfg.electricityRate || 14
   const cutMin = (headline.cutTime || 0) / 60
   const kPcs = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n || '')
+  const target = cfg.utilTargetPct || 50
+  const fixedDaily = Math.round((mo.fixedExclElec || 0) / 30)
+  const idleH = headline.powerOnPct != null ? +(24 - (headline.workH || 0)).toFixed(1) : null
   return (
     <div>
       <StatusStrip meta={meta} />
+      {headline.powerOnPct != null && (
+        <div className="hero">
+          <div className="hero-t">Utilization — your #1 profit lever</div>
+          <div className="hero-main">
+            <div className="hero-big" style={{ color: headline.powerOnPct < target ? '#f59e0b' : '#34d399' }}>{headline.powerOnPct}%</div>
+            <div className="hero-cap">powered on<br /><span>target {target}%</span></div>
+          </div>
+          <div className="hero-bar"><div className="hero-fill" style={{ width: `${Math.min(100, (headline.powerOnPct / target) * 100)}%`, background: headline.powerOnPct < target ? '#f59e0b' : '#34d399' }} /></div>
+          <div className="hero-stats">
+            <span>Idle <b>{idleH} h</b> (not cutting)</span>
+            <span>Fixed cost <b>{rupee(fixedDaily)}/day</b> paid anyway</span>
+            <span>Cutting <b>{(headline.workH || 0).toFixed(1)} h</b></span>
+          </div>
+          <div className="hero-note">Every extra cutting hour turns idle overhead into margin — this is the laser job-work opportunity. Fill the machine.</div>
+        </div>
+      )}
       <h2>Last full day — {prettyYmd(headline.statDate)}</h2>
       {today && today.statDate !== headline.statDate && (
         <div className="todaystrip">Today ({prettyYmd(today.statDate)}, in progress): <b>{fmt(today.pieces || 0)}</b> pcs · {(today.cutTimeH || 0).toFixed(2)} h cutting</div>
