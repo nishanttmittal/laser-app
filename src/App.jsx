@@ -226,6 +226,24 @@ function Costing({ jobs, cfg, mo }) {
   const billMin = isLong ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin
   const quoteCharge = billMin * charge
   const quoteCost = billMin * mo.costPerBillMin
+  const shareQuote = async () => {
+    // customer-facing ONLY — never include cost or margin
+    const text = [
+      'UNICO Metal Products — Laser Cutting Quote',
+      new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      '',
+      `Item: ${sizeKey}`,
+      `Quantity: ${fmt(qty)} pcs`,
+      `Laser cutting time: ~${billMin.toFixed(0)} min`,
+      `Quote: ${rupee(quoteCharge)}`,
+      '',
+      '(Laser cutting + setup only; tube / material billed separately.)',
+    ].join('\n')
+    try {
+      if (navigator.share) await navigator.share({ text })
+      else window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank')
+    } catch { /* user cancelled share */ }
+  }
   const f = cfg.monthlyFixed || {}
   const items = [
     ['Operator', f.operator], ['Maintenance', f.maintenance], ['Rent', f.rent], ['Consumables', f.consumables],
@@ -276,6 +294,7 @@ function Costing({ jobs, cfg, mo }) {
           <div className="tr"><span>Est. margin</span><span style={{ color: quoteCharge - quoteCost >= 0 ? '#34d399' : '#f87171' }}>{rupee(quoteCharge - quoteCost)}</span><span /><span /><span /></div>
         </div>
       ) : <div className="note">Pick a size to estimate a quote (uses that size's real average cutting speed).</div>}
+      {sel && <button className="btn wa" onClick={shareQuote}>Share quote on WhatsApp</button>}
     </div>
   )
 }

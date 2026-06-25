@@ -146,5 +146,6 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .hero-stats { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--mut); }
 .hero-stats b { color: var(--txt); font-family: var(--mono); }
 .hero-note { margin-top: 10px; font-size: 12px; color: var(--faint); line-height: 1.45; }
+.btn.wa { background: #25D366; color: #04121f; border-color: #25D366; font-weight: 700; margin-top: 12px; }
 
 .loader { text-align: center; color: var(--mut); padding: 48px 0; font-size: 14px; }
