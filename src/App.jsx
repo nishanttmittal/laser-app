@@ -254,7 +254,7 @@ function Costing({ jobs, cfg, mo }) {
       <div className="grid">
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
         <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
-        <Card title="Setups / cutting day" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size · ${cfg.setup?.lengthChangesPerDay ?? 3.5} length`} sub={`${cfg.setup?.dimensionChangeMin ?? 40} / ${cfg.setup?.lengthChangeMin ?? 15} min each`} />
+        <Card title="Setups / cutting day" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size · ${cfg.setup?.lengthChangesPerDay ?? 3.5} length`} sub={`${cfg.setup?.dimensionChangeMin ?? 40} min / ${Math.round((cfg.setup?.lengthChangeMin ?? 0.33) * 60)} sec each`} />
         <Card title="Long job +20% over" value={`${cfg.longJob?.thresholdMin ?? 60} min`} />
       </div>
 
@@ -272,7 +272,7 @@ function Costing({ jobs, cfg, mo }) {
         <label>Setup
           <select value={setupType} onChange={(e) => setSetupType(e.target.value)}>
             <option value="dimension">Dimension change (+{cfg.setup?.dimensionChangeMin ?? 40}m)</option>
-            <option value="length">Length change (+{cfg.setup?.lengthChangeMin ?? 15}m)</option>
+            <option value="length">Length change (+{Math.round((cfg.setup?.lengthChangeMin ?? 0.33) * 60)} sec)</option>
             <option value="none">No setup</option>
           </select>
         </label>
