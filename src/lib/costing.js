@@ -4,10 +4,22 @@
 
 const toD = (s) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
 
+// Count REAL length changes from the job sequence: a 60-sec changeover only happens when the
+// cut length actually changes (e.g. 6m -> 5m). The frequent same-length 6m auto-feeds are NOT
+// counted — they're automatic and already inside the machine's cut time.
+export function countLengthChanges(jobs) {
+  const ord = (jobs || []).filter((j) => j.startTime).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  let c = 0, prev = null;
+  for (const j of ord) {
+    if (j.length != null) { if (prev != null && j.length !== prev) c++; prev = j.length; }
+  }
+  return c;
+}
+
 // Monthly cost basis -> cost per billable minute.
 // Electricity comes from REAL laser_days.kWh (calibrated to the meter), normalized to 30d.
-// Setup minutes come from the owner's real changeover rate per CUTTING day (not the job log).
-export function monthlyCost(days, cfg = {}) {
+// Setup = owner's size-change rate per cutting day + DATA-DERIVED length changes (60s each).
+export function monthlyCost(days, cfg = {}, jobs = null) {
   const dd = (days || []).filter((d) => d.cutTime);
   const totalCutMin = dd.reduce((a, d) => a + (d.cutTime || 0) / 60, 0);
   const ds = dd.map((d) => String(d.statDate)).sort();
@@ -16,10 +28,16 @@ export function monthlyCost(days, cfg = {}) {
 
   const cuttingDaysPerMonth = (dd.length / span) * 30;
   const sc = cfg.setup || {};
-  const setupPerDay =
-    (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40) +
-    (sc.lengthChangesPerDay ?? 3.5) * (sc.lengthChangeMin ?? 0.33);
-  const mSetup = cuttingDaysPerMonth * setupPerDay;
+  // Size changes: owner's real rate per cutting day (manual re-tooling).
+  const mSizeSetup = cuttingDaysPerMonth * (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40);
+  // Length changes: data-derived from real length transitions (60s each) when jobs are given;
+  // else fall back to a per-day estimate. Same-length 6m auto-feeds are excluded (in cut time).
+  const lenMin = sc.lengthChangeMin ?? 1;
+  const lengthChanges = jobs ? countLengthChanges(jobs) : null;
+  const mLengthSetup = jobs
+    ? (lengthChanges / span) * 30 * lenMin
+    : cuttingDaysPerMonth * (sc.lengthChangesPerDay ?? 0.7) * lenMin;
+  const mSetup = mSizeSetup + mLengthSetup;
   const mBill = mCut + mSetup || 1;
 
   const rate = cfg.electricityRate || 14;
@@ -31,7 +49,7 @@ export function monthlyCost(days, cfg = {}) {
     (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0);
   const totalMonthly = fixedExclElec + mElec;
 
-  return { mCut, mSetup, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec, cuttingDaysPerMonth, setupPerDay };
+  return { mCut, mSetup, mSizeSetup, mLengthSetup, lengthChanges, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec, cuttingDaysPerMonth };
 }
 
 // A single job quote. setupType: 'dimension' | 'length' | 'none'.

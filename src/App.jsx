@@ -8,7 +8,7 @@ import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob } from './lib/costing.js'
 
 /* ---------- helpers ---------- */
-const useMonthly = (days, _jobs, cfg) => useMemo(() => monthlyCost(days, cfg), [days, cfg])
+const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
 
 function piecesByDay(jobs) {
   const m = {}
@@ -225,7 +225,7 @@ function Costing({ jobs, cfg, mo }) {
       <div className="grid">
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
         <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
-        <Card title="Setups / cutting day" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size · ${cfg.setup?.lengthChangesPerDay ?? 3.5} length`} sub={`${cfg.setup?.dimensionChangeMin ?? 40} min / ${Math.round((cfg.setup?.lengthChangeMin ?? 0.33) * 60)} sec each`} />
+        <Card title="Setup basis" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size-changes/day`} sub={`× ${cfg.setup?.dimensionChangeMin ?? 40} min + length changes auto (${Math.round((cfg.setup?.lengthChangeMin ?? 1) * 60)}s each)`} />
         <Card title="Loading & QC buffer" value={`+${cfg.longJob?.bufferPct ?? 20}%`} sub="on every job" />
       </div>
 

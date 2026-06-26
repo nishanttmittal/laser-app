@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { monthlyCost, quoteJob } from './costing.js';
+import { monthlyCost, quoteJob, countLengthChanges } from './costing.js';
 
 const cfg = {
   electricityRate: 14,
@@ -22,8 +22,9 @@ test('monthlyCost: cutting + setup minutes', () => {
   assert.equal(m.span, 30);
   assert.equal(m.mCut, 120);                 // 120 cut-min / 30d * 30
   assert.equal(m.cuttingDaysPerMonth, 2);
-  assert.equal(m.setupPerDay, 5 * 40 + 2 * 0.5); // 201
-  assert.equal(m.mSetup, 402);               // 2 * 201
+  assert.equal(m.mSizeSetup, 400);           // 2 cutting-days * 5 size * 40 min
+  assert.equal(m.mLengthSetup, 2);           // fallback (no jobs): 2 days * 2 len/day * 0.5 min
+  assert.equal(m.mSetup, 402);               // 400 + 2
   assert.equal(m.mBill, 522);                // 120 + 402
 });
 
@@ -83,4 +84,39 @@ test('quoteJob: a positive threshold suppresses the buffer on small jobs', () =>
   const q = quoteJob({ secPerPiece: 6, qty: 10, setupType: 'none', cfg: cfg2, costPerBillMin: 20 });
   assert.equal(q.isBuffered, false);
   assert.equal(q.billMin, 1);                // no buffer below threshold
+});
+
+test('countLengthChanges: only real length transitions (same-length auto-feeds are free)', () => {
+  const jobs = [
+    { startTime: '2026-06-01 09:00:00', length: 6000 },
+    { startTime: '2026-06-01 09:05:00', length: 6000 }, // same -> not a change
+    { startTime: '2026-06-01 09:10:00', length: 5000 }, // change
+    { startTime: '2026-06-01 09:15:00', length: 5000 }, // same
+    { startTime: '2026-06-01 09:20:00', length: 4000 }, // change
+  ];
+  assert.equal(countLengthChanges(jobs), 2);
+});
+
+test('countLengthChanges: jobs with no parsed length are skipped', () => {
+  const jobs = [
+    { startTime: '2026-06-01 09:00:00', length: 6000 },
+    { startTime: '2026-06-01 09:05:00' },               // null -> skipped
+    { startTime: '2026-06-01 09:10:00', length: 5000 }, // change vs 6000
+  ];
+  assert.equal(countLengthChanges(jobs), 1);
+});
+
+test('monthlyCost: length setup is DATA-derived from job transitions when jobs given', () => {
+  const cfgL = { ...cfg, setup: { ...cfg.setup, lengthChangeMin: 1 } };
+  const jobs = [
+    { startTime: '2026-06-01 09:00:00', length: 6000 },
+    { startTime: '2026-06-01 09:05:00', length: 5000 }, // 1
+    { startTime: '2026-06-01 09:10:00', length: 6000 }, // 2
+    { startTime: '2026-06-01 09:15:00', length: 4000 }, // 3
+  ];
+  const m = monthlyCost(days, cfgL, jobs);
+  assert.equal(m.lengthChanges, 3);
+  assert.equal(m.mLengthSetup, 3);           // (3 / 30 span) * 30 * 1 min
+  assert.equal(m.mSizeSetup, 400);           // 2 cutting-days * 5 size * 40 min
+  assert.equal(m.mSetup, 403);
 });
