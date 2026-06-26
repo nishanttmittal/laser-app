@@ -43,14 +43,20 @@ export function enrichJobs(jobs, map) {
 
 export function groupBySize(jobs) {
   const m = {};
-  const UNL = { sizeKey: 'Unlabelled', hasSize: false, unlabelled: true, runs: 0, pieces: 0, sec: 0 };
+  const mk = (sizeKey, hasSize, extra) => ({ sizeKey, hasSize, runs: 0, pieces: 0, sec: 0, goodSec: 0, goodPieces: 0, ...extra });
+  const UNL = mk('Unlabelled', false, { unlabelled: true });
   for (const j of jobs || []) {
-    if (!j.hasSize) { UNL.runs++; UNL.pieces += j.partAmount || 0; UNL.sec += j.timeTaken || 0; continue; }
-    const s = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, hasSize: true, runs: 0, pieces: 0, sec: 0 });
-    s.runs++; s.pieces += j.partAmount || 0; s.sec += j.timeTaken || 0;
+    const bucket = j.hasSize ? (m[j.sizeKey] = m[j.sizeKey] || mk(j.sizeKey, true)) : UNL;
+    bucket.runs++;
+    bucket.pieces += j.partAmount || 0;
+    bucket.sec += j.timeTaken || 0;
+    // "good" = a run that actually produced pieces and didn't abort. Only these feed the
+    // per-piece rate, so aborted / 0-piece runs can't inflate (or zero out) the quote speed.
+    if ((j.partAmount || 0) > 0 && !j.aborted) { bucket.goodSec += j.timeTaken || 0; bucket.goodPieces += j.partAmount || 0; }
   }
   const rows = Object.values(m).sort((a, b) => b.pieces - a.pieces);
   if (UNL.runs) rows.push(UNL);
+  for (const r of rows) r.secPerPiece = r.goodPieces ? r.goodSec / r.goodPieces : 0;
   return rows;
 }
 

@@ -64,3 +64,15 @@ test('unlabelledFiles lists only still-nameless files', () => {
   assert.equal(f[0].file, 'bhawani.zzx');
   assert.equal(f[0].pieces, 80);
 });
+
+test('groupBySize: per-piece rate ignores aborted / 0-piece runs (fix #2)', () => {
+  const jobs = [
+    { sizeKey: '30x20 t1', hasSize: true, partAmount: 10, timeTaken: 100 },              // good: 10 s/pc
+    { sizeKey: '30x20 t1', hasSize: true, partAmount: 0, timeTaken: 500, aborted: true },// aborted -> excluded
+    { sizeKey: '30x20 t1', hasSize: true, partAmount: 0, timeTaken: 60 },                // 0-piece  -> excluded
+  ];
+  const s = groupBySize(jobs).find((r) => r.sizeKey === '30x20 t1');
+  assert.equal(s.pieces, 10);          // totals still count every run
+  assert.equal(s.goodPieces, 10);
+  assert.equal(s.secPerPiece, 10);     // 100/10 — the 500+60 aborted/0-piece secs excluded (was 66)
+});

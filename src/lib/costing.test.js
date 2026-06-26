@@ -8,7 +8,7 @@ const cfg = {
   monthlyFixed: { operator: 50000, maintenance: 15000, rent: 30000, consumables: 5000 },
   depreciationMonthly: 41667,
   setup: { sizeChangesPerDay: 5, dimensionChangeMin: 40, lengthChangesPerDay: 2, lengthChangeMin: 0.5 },
-  longJob: { bufferPct: 20, thresholdMin: 0 },
+  qcPct: 12,
 };
 
 // 30-day span: two cutting days 29 days apart, 60 cut-min + 100 kWh each.
@@ -53,37 +53,30 @@ test('monthlyCost: empty input never divides by zero', () => {
   assert.ok(Number.isFinite(m.costPerBillMin));
 });
 
-test('quoteJob: loading & QC buffer (+20%) applies to EVERY job (threshold 0)', () => {
+test('quoteJob: QC (12%) applies to CUTTING only — not setup or loading', () => {
   const q = quoteJob({ secPerPiece: 12, qty: 100, setupType: 'dimension', cfg, costPerBillMin: 100 });
   assert.equal(q.cutMin, 20);                // 100 * 12 / 60
   assert.equal(q.setupMin, 40);              // dimension
-  assert.equal(q.stdMin, 60);
-  assert.equal(q.isBuffered, true);
-  assert.equal(q.billMin, 72);               // 60 * 1.2
-  assert.equal(q.quoteCharge, 72 * 40);
-  assert.equal(q.quoteCost, 72 * 100);
-  assert.equal(q.margin, 72 * 40 - 72 * 100);
+  assert.equal(+q.qcMin.toFixed(2), 2.4);    // 12% of CUTTING (20) — NOT 12% of (20+40)
+  assert.equal(q.stdMin, 60);                // cut + setup + loading (no QC)
+  assert.equal(q.billMin, 62.4);             // 60 + 2.4  (would be 67.2 if QC hit setup too)
+  assert.equal(q.quoteCharge, 62.4 * 40);
+  assert.equal(q.margin, 62.4 * 40 - 62.4 * 100);
 });
 
-test('quoteJob: a tiny 1-minute job still carries the buffer', () => {
+test('quoteJob: QC scales down with cutting on a tiny job', () => {
   const q = quoteJob({ secPerPiece: 6, qty: 10, setupType: 'none', cfg, costPerBillMin: 20 });
   assert.equal(q.cutMin, 1);
-  assert.equal(q.setupMin, 0);
-  assert.equal(q.billMin, 1.2);              // 1 * 1.2 — buffer fires even for small jobs
+  assert.equal(+q.qcMin.toFixed(2), 0.12);   // 12% of 1
+  assert.equal(+q.billMin.toFixed(2), 1.12);
 });
 
-test('quoteJob: length setup uses the (tiny) length-change minutes', () => {
+test('quoteJob: length setup adds its minutes but QC stays on cutting', () => {
   const q = quoteJob({ secPerPiece: 6, qty: 10, setupType: 'length', cfg, costPerBillMin: 20 });
   assert.equal(q.setupMin, 0.5);
-  assert.equal(q.stdMin, 1.5);
-  assert.equal(+q.billMin.toFixed(2), 1.8);
-});
-
-test('quoteJob: a positive threshold suppresses the buffer on small jobs', () => {
-  const cfg2 = { ...cfg, longJob: { bufferPct: 20, thresholdMin: 60 } };
-  const q = quoteJob({ secPerPiece: 6, qty: 10, setupType: 'none', cfg: cfg2, costPerBillMin: 20 });
-  assert.equal(q.isBuffered, false);
-  assert.equal(q.billMin, 1);                // no buffer below threshold
+  assert.equal(q.stdMin, 1.5);               // 1 cut + 0.5 setup
+  assert.equal(+q.qcMin.toFixed(2), 0.12);   // 12% of cut(1), not of 1.5
+  assert.equal(+q.billMin.toFixed(2), 1.62); // 1.5 + 0.12
 });
 
 test('countLengthChanges: only real length transitions (same-length auto-feeds are free)', () => {

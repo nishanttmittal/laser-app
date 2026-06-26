@@ -70,10 +70,12 @@ export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cf
   const tubes = piecesPerTube > 0 ? Math.ceil(qty / piecesPerTube) : 0;
   const loadingMin = tubes * ((sc.loadSecPerTube ?? 18) / 60);
   const stdMin = cutMin + setupMin + loadingMin;
-  // Buffer is now QC-only (loading is explicit above) — still applied per cfg.longJob.
-  const isBuffered = stdMin > (cfg.longJob?.thresholdMin ?? 0);
-  const billMin = isBuffered ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin;
+  // QC inspects finished PIECES, so it scales with cutting time only — NOT with setup or
+  // loading (which produce no pieces to inspect). qcPct default 12% (loading is now separate).
+  const qcPct = (cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12) / 100;
+  const qcMin = cutMin * qcPct;
+  const billMin = stdMin + qcMin;
   const quoteCharge = billMin * charge;
   const quoteCost = billMin * costPerBillMin;
-  return { cutMin, setupMin, loadingMin, tubes, stdMin, isBuffered, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
+  return { cutMin, setupMin, loadingMin, tubes, qcMin, stdMin, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
 }
