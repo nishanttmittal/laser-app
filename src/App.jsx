@@ -217,7 +217,7 @@ function Costing({ jobs, cfg, mo }) {
   const cutMin = (qty * spp) / 60
   const setupMin = setupType === 'dimension' ? (cfg.setup?.dimensionChangeMin ?? 40) : setupType === 'length' ? (cfg.setup?.lengthChangeMin ?? 15) : 0
   const stdMin = cutMin + setupMin
-  const isLong = stdMin > (cfg.longJob?.thresholdMin ?? 60)
+  const isLong = stdMin > (cfg.longJob?.thresholdMin ?? 0) // threshold 0 => loading & QC buffer on all jobs
   const billMin = isLong ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin
   const quoteCharge = billMin * charge
   const quoteCost = billMin * mo.costPerBillMin
@@ -255,7 +255,7 @@ function Costing({ jobs, cfg, mo }) {
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
         <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
         <Card title="Setups / cutting day" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size · ${cfg.setup?.lengthChangesPerDay ?? 3.5} length`} sub={`${cfg.setup?.dimensionChangeMin ?? 40} min / ${Math.round((cfg.setup?.lengthChangeMin ?? 0.33) * 60)} sec each`} />
-        <Card title="Long job +20% over" value={`${cfg.longJob?.thresholdMin ?? 60} min`} />
+        <Card title="Loading & QC buffer" value={`+${cfg.longJob?.bufferPct ?? 20}%`} sub="on every job" />
       </div>
 
       <h2>Quote a job</h2>
@@ -283,7 +283,7 @@ function Costing({ jobs, cfg, mo }) {
           <div className="tr"><span>Cutting time</span><span>{cutMin.toFixed(1)} min</span><span /><span /><span /></div>
           <div className="tr"><span>Setup</span><span>{setupMin} min</span><span /><span /><span /></div>
           <div className="tr"><span>Standard time</span><span>{stdMin.toFixed(1)} min</span><span /><span /><span /></div>
-          {isLong && <div className="tr"><span>Long-job +{cfg.longJob?.bufferPct ?? 20}%</span><span>{billMin.toFixed(1)} min</span><span /><span /><span /></div>}
+          {isLong && <div className="tr"><span>Loading &amp; QC +{cfg.longJob?.bufferPct ?? 20}%</span><span>{billMin.toFixed(1)} min</span><span /><span /><span /></div>}
           <div className="tr th"><span>Quote (charge)</span><span style={{ color: '#34d399' }}>{rupee(quoteCharge)}</span><span /><span /><span /></div>
           <div className="tr"><span>Est. cost</span><span>{rupee(quoteCost)}</span><span /><span /><span /></div>
           <div className="tr"><span>Est. margin</span><span style={{ color: quoteCharge - quoteCost >= 0 ? '#34d399' : '#f87171' }}>{rupee(quoteCharge - quoteCost)}</span><span /><span /><span /></div>
