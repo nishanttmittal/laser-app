@@ -169,3 +169,21 @@ test('monthlyMargins: revenue, actual electricity, fixed -> margin per month', (
   assert.equal(jun.elecCost, 200 * 14);
   assert.equal(jun.margin, jun.revenue - (jun.fixed + jun.elecCost));
 });
+
+test('quoteJob: reject yield cuts a bit extra to ship the ordered qty', () => {
+  const q = quoteJob({ secPerPiece: 6, qty: 100, setupType: 'none', cfg: { ...cfg, rejectionPct: 2 }, costPerBillMin: 20 });
+  assert.equal(+q.qtyCut.toFixed(2), 102.04);     // 100 / 0.98
+  assert.equal(+q.cutMin.toFixed(2), 10.20);      // 102.04 * 6 / 60
+});
+
+test('quoteJob: new-part programming is a one-time block, only when flagged', () => {
+  const cfgP = { ...cfg, programmingMin: 25 };
+  assert.equal(quoteJob({ secPerPiece: 6, qty: 100, setupType: 'none', cfg: cfgP, costPerBillMin: 20, newPart: true }).progMin, 25);
+  assert.equal(quoteJob({ secPerPiece: 6, qty: 100, setupType: 'none', cfg: cfgP, costPerBillMin: 20, newPart: false }).progMin, 0);
+});
+
+test('quoteJob: minimum order charge floors a tiny job', () => {
+  const q = quoteJob({ secPerPiece: 6, qty: 5, setupType: 'none', cfg: { ...cfg, minOrderCharge: 500 }, costPerBillMin: 20 });
+  assert.equal(q.minApplied, true);
+  assert.equal(q.quoteCharge, 500);               // raw ~22 floored to 500
+});

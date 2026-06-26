@@ -59,25 +59,32 @@ export function monthlyCost(days, cfg = {}, jobs = null) {
 
 // A single job quote. setupType: 'dimension' | 'length' | 'none'.
 // The loading & QC buffer (+bufferPct) applies whenever stdMin > thresholdMin (0 = all jobs).
-export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0, piecesPerTube = 0 }) {
+export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0, piecesPerTube = 0, newPart = false }) {
   const sc = cfg.setup || {};
   const charge = cfg.chargePerMin || 40;
-  const cutMin = (qty * secPerPiece) / 60;
+  // Reject yield: cut a bit extra so the customer still receives the ordered qty.
+  const yld = 1 / (1 - (cfg.rejectionPct ?? 0) / 100);
+  const qtyCut = qty * yld;
+  const cutMin = (qtyCut * secPerPiece) / 60;
   const setupMin =
     setupType === 'dimension' ? (sc.dimensionChangeMin ?? 40) :
     setupType === 'length' ? (sc.lengthChangeMin ?? 0.33) : 0;
-  // Explicit per-tube loading: tubes for this job from the size's historical pieces-per-tube.
-  const tubes = piecesPerTube > 0 ? Math.ceil(qty / piecesPerTube) : 0;
+  // One-time nesting/programming for a brand-new part.
+  const progMin = newPart ? (cfg.programmingMin ?? 0) : 0;
+  // Explicit per-tube loading from the size's historical pieces-per-tube (on the cut qty).
+  const tubes = piecesPerTube > 0 ? Math.ceil(qtyCut / piecesPerTube) : 0;
   const loadingMin = tubes * ((sc.loadSecPerTube ?? 18) / 60);
-  const stdMin = cutMin + setupMin + loadingMin;
-  // QC inspects finished PIECES, so it scales with cutting time only — NOT with setup or
-  // loading (which produce no pieces to inspect). qcPct default 12% (loading is now separate).
+  const stdMin = cutMin + setupMin + loadingMin + progMin;
+  // QC inspects finished PIECES, so it scales with cutting time only — not setup/loading/prog.
   const qcPct = (cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12) / 100;
   const qcMin = cutMin * qcPct;
   const billMin = stdMin + qcMin;
-  const quoteCharge = billMin * charge;
+  const rawCharge = billMin * charge;
+  const minCharge = cfg.minOrderCharge ?? 0;
+  const minApplied = rawCharge < minCharge;
+  const quoteCharge = Math.max(rawCharge, minCharge);
   const quoteCost = billMin * costPerBillMin;
-  return { cutMin, setupMin, loadingMin, tubes, qcMin, stdMin, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
+  return { cutMin, setupMin, loadingMin, progMin, qtyCut, tubes, qcMin, stdMin, billMin, rawCharge, quoteCharge, minApplied, quoteCost, margin: quoteCharge - quoteCost };
 }
 
 const fixedTotal = (cfg) => {

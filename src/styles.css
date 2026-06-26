@@ -185,3 +185,5 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   font-size: 11px; padding: 4px 9px; border-radius: 7px; cursor: pointer; }
 
 .loader { text-align: center; color: var(--mut); padding: 48px 0; font-size: 14px; }
+.quote label.chk { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--mut); font-weight: 500; }
+.quote label.chk input { width: auto; flex: 0 0 auto; transform: scale(1.2); accent-color: var(--accent); }
