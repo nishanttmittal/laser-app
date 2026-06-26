@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { monthlyCost, quoteJob, countLengthChanges } from './costing.js';
+import { monthlyCost, quoteJob, countLengthChanges, whatIf, monthlyMargins } from './costing.js';
 
 const cfg = {
   electricityRate: 14,
@@ -140,4 +140,32 @@ test('monthlyCost: length setup is DATA-derived from job transitions when jobs g
   assert.equal(m.mLengthSetup, 3);           // (3 / 30 span) * 30 * 1 min
   assert.equal(m.mSizeSetup, 400);           // 2 cutting-days * 5 size * 40 min
   assert.equal(m.mSetup, 403);
+});
+
+test('whatIf: more cutting hours -> lower cost/min (fixed cost spread wider)', () => {
+  const cfgW = { ...cfg, elecModel: { baseKWhPerDay: 35, perCutHourKWh: 20 } };
+  const current = monthlyCost(days, cfgW); // a baseline with ratios
+  const low = whatIf(current, cfgW, { cuttingHoursPerDay: 4, workingDaysPerMonth: 26 });
+  const high = whatIf(current, cfgW, { cuttingHoursPerDay: 10, workingDaysPerMonth: 26 });
+  assert.ok(high.mCut > low.mCut);                       // more cutting minutes
+  assert.ok(high.costPerBillMin < low.costPerBillMin);   // cost/min DROPS as hours rise
+  assert.ok(high.monthlyMargin > low.monthlyMargin);     // and monthly margin RISES
+  assert.ok(high.marginPerMin > low.marginPerMin);
+});
+
+test('monthlyMargins: revenue, actual electricity, fixed -> margin per month', () => {
+  const ds = [
+    { statDate: 20260601, cutTime: 6000, kWh: 100, runs: 10 }, // 100 cut-min
+    { statDate: 20260615, cutTime: 6000, kWh: 100, runs: 10 },
+    { statDate: 20260710, cutTime: 3000, kWh: 50, runs: 5 },   // different month
+  ];
+  const rows = monthlyMargins(ds, cfg);
+  assert.equal(rows.length, 2);
+  const jun = rows.find((r) => r.ym === '2026-06');
+  // 200 cut-min, 2 cutting-days, 20 tubes, 200 kWh
+  // setup = 2 * 5 * 40 = 400; loading = 20 * (18/60)=6; qc = 200*0.12=24; bill=200+400+6+24=630
+  assert.equal(jun.billMin, 630);
+  assert.equal(jun.revenue, 630 * 40);
+  assert.equal(jun.elecCost, 200 * 14);
+  assert.equal(jun.margin, jun.revenue - (jun.fixed + jun.elecCost));
 });

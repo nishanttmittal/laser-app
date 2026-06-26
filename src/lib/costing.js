@@ -79,3 +79,63 @@ export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cf
   const quoteCost = billMin * costPerBillMin;
   return { cutMin, setupMin, loadingMin, tubes, qcMin, stdMin, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
 }
+
+const fixedTotal = (cfg) => {
+  const f = cfg.monthlyFixed || {};
+  return (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0);
+};
+
+// WHAT-IF: project cost/min and monthly margin at a chosen cutting-hours/day.
+// Fixed cost stays flat; only electricity and billable minutes scale -> shows how running
+// the machine longer drops cost/min and lifts margin. `current` = a monthlyCost() result
+// (used to keep the same setup-per-day and loading-per-cut-minute ratios as reality).
+export function whatIf(current, cfg = {}, { cuttingHoursPerDay = 0, workingDaysPerMonth = 26 } = {}) {
+  const charge = cfg.chargePerMin || 40;
+  const rate = cfg.electricityRate || 14;
+  const em = cfg.elecModel || {};
+  const setupPerDay = current.cuttingDaysPerMonth ? current.mSetup / current.cuttingDaysPerMonth : 0;
+  const loadingPerCutMin = current.mCut ? current.mLoading / current.mCut : 0;
+  const mCut = cuttingHoursPerDay * 60 * workingDaysPerMonth;
+  const mSetup = workingDaysPerMonth * setupPerDay;
+  const mLoading = mCut * loadingPerCutMin;
+  const mBill = mCut + mSetup + mLoading || 1;
+  const kWhPerDay = (em.baseKWhPerDay ?? 35) + (em.perCutHourKWh ?? 20) * cuttingHoursPerDay;
+  const mElec = Math.round(workingDaysPerMonth * kWhPerDay * rate);
+  const totalMonthly = (current.fixedExclElec || fixedTotal(cfg)) + mElec;
+  const costPerBillMin = totalMonthly / mBill;
+  const qcPct = (cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12) / 100;
+  const revenue = (mBill + mCut * qcPct) * charge;
+  return { cuttingHoursPerDay, workingDaysPerMonth, mCut, mBill, mElec, totalMonthly, costPerBillMin, marginPerMin: charge - costPerBillMin, revenue, monthlyMargin: revenue - totalMonthly };
+}
+
+// ACTUAL margin per month, from real production + real per-day electricity (laser_days.kWh).
+// Revenue = billable minutes (cut + setup + loading + QC) at the standard ₹/min. Cost =
+// full monthly fixed + actual electricity. Material is excluded (billed separately).
+export function monthlyMargins(days, cfg = {}) {
+  const charge = cfg.chargePerMin || 40;
+  const rate = cfg.electricityRate || 14;
+  const sc = cfg.setup || {};
+  const qcPct = (cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12) / 100;
+  const fixed = fixedTotal(cfg);
+  const months = {};
+  for (const d of days || []) {
+    if (!d.cutTime) continue;
+    const ym = `${String(d.statDate).slice(0, 4)}-${String(d.statDate).slice(4, 6)}`;
+    const m = (months[ym] = months[ym] || { ym, cutMin: 0, kWh: 0, cuttingDays: 0, tubes: 0 });
+    m.cutMin += (d.cutTime || 0) / 60;
+    m.kWh += d.kWh || 0;
+    m.cuttingDays += 1;
+    m.tubes += d.runs || 0;
+  }
+  return Object.values(months).map((m) => {
+    const setupMin = m.cuttingDays * (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40); // size (length negligible)
+    const loadingMin = m.tubes * ((sc.loadSecPerTube ?? 18) / 60);
+    const qcMin = m.cutMin * qcPct;
+    const billMin = m.cutMin + setupMin + loadingMin + qcMin;
+    const revenue = Math.round(billMin * charge);
+    const elecCost = Math.round(m.kWh * rate);
+    const cost = fixed + elecCost;
+    const margin = revenue - cost;
+    return { ym: m.ym, cutH: +(m.cutMin / 60).toFixed(1), cuttingDays: m.cuttingDays, billMin: Math.round(billMin), revenue, elecCost, fixed, cost, margin, marginPct: revenue ? +(margin / revenue * 100).toFixed(0) : 0 };
+  }).sort((a, b) => a.ym.localeCompare(b.ym));
+}

@@ -5,7 +5,7 @@ import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } fro
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 import { periodUtil, stateLabel } from './lib/util.js'
-import { monthlyCost, quoteJob } from './lib/costing.js'
+import { monthlyCost, quoteJob, whatIf, monthlyMargins } from './lib/costing.js'
 
 /* ---------- helpers ---------- */
 const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
@@ -435,8 +435,51 @@ function Utilization({ days, meta }) {
   )
 }
 
+function Margin({ days, cfg, mo }) {
+  const months = monthlyMargins(days, cfg)
+  const [hrs, setHrs] = useState(8)
+  const [wdays, setWdays] = useState(26)
+  const charge = cfg.chargePerMin || 40
+  const wi = whatIf(mo, cfg, { cuttingHoursPerDay: hrs, workingDaysPerMonth: wdays })
+  return (
+    <div>
+      <h2>Actual margin — per month</h2>
+      <div className="note">Revenue = production billed at {rupee(charge)}/min (cutting + setup + loading + QC). Cost = full monthly fixed + <b>actual electricity</b> (from the daily meter / calibrated kWh). Material is billed separately, so it's excluded here.</div>
+      <div className="tbl">
+        <div className="tr th wide"><span>Month</span><span>Cut h</span><span>Revenue</span><span>Elec</span><span>Margin</span></div>
+        {months.map((m) => (
+          <div className="tr wide" key={m.ym}>
+            <span>{m.ym}</span><span>{m.cutH}</span>
+            <span style={{ color: '#34d399' }}>{rupee(m.revenue)}</span>
+            <span>{rupee(m.elecCost)}</span>
+            <span style={{ color: m.margin >= 0 ? '#34d399' : '#f87171' }}>{rupee(m.margin)} · {m.marginPct}%</span>
+          </div>
+        ))}
+      </div>
+      <div className="note">Fixed cost is <b>{rupee(months[0]?.fixed || mo.fixedExclElec)}/month</b> regardless of output — months below that on revenue run at a loss. That's the utilization story in rupees.</div>
+
+      <h2>What-if — run the machine longer</h2>
+      <div className="quote">
+        <label>Cutting hours / day
+          <input type="number" step="0.5" value={hrs} onChange={(e) => setHrs(+e.target.value || 0)} />
+        </label>
+        <label>Working days / month
+          <input type="number" value={wdays} onChange={(e) => setWdays(+e.target.value || 0)} />
+        </label>
+      </div>
+      <div className="grid">
+        <Card title="Cost / billable-min" value={rupee(wi.costPerBillMin)} accent={wi.costPerBillMin < charge ? '#34d399' : '#f87171'} />
+        <Card title="Margin / min" value={rupee(wi.marginPerMin)} accent="#34d399" />
+        <Card title="Billable hours / mo" value={`${(wi.mBill / 60).toFixed(0)} h`} />
+        <Card title="Projected margin / mo" value={rupee(wi.monthlyMargin)} accent={wi.monthlyMargin >= 0 ? '#34d399' : '#f87171'} />
+      </div>
+      <div className="note">At <b>{hrs} h/day × {wdays} days</b>: cost ≈ <b>{rupee(wi.costPerBillMin)}/min</b> vs charge {rupee(charge)}/min. Fixed cost stays the same — every extra cutting hour spreads it thinner and widens the margin.</div>
+    </div>
+  )
+}
+
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Day', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Reports', 'Fix sizes', 'Machine']
+const TABS = ['Dashboard', 'Day', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Margin', 'Reports', 'Fix sizes', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 function Login() {
   const [busy, setBusy] = useState(false)
@@ -516,6 +559,7 @@ export default function App() {
         {tab === 'Jobs' && (ready ? <Jobs jobs={mappedJobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <Costing jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Margin' && <Margin days={days} cfg={cfg} mo={mo} />}
         {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
         {tab === 'Fix sizes' && (ready ? <Assign jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} /> : <Loading />)}
         {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
