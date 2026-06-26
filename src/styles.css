@@ -85,7 +85,11 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .joblist { display: flex; flex-direction: column; gap: 9px; }
 .jobcard { background: var(--panel); border: 1px solid var(--line);
   border-radius: 12px; padding: 12px 14px; }
-.jobcard-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.jobcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+.jobcard-when { margin-left: auto; }
+.jobthumb { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); flex: 0 0 auto; }
+.jobcard-sub { font-family: var(--mono); font-size: 11px; color: var(--mut); margin: -5px 0 9px; }
+.szthumb { width: 26px; height: 26px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); flex: 0 0 auto; }
 .chip { font-size: 14px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
   background: var(--panel2); color: var(--txt);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }

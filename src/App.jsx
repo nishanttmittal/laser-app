@@ -20,6 +20,7 @@ import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
+import { buildCatalogIndex, tagJobs, sizeCatalog } from './lib/catalog.js'
 import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
 
@@ -158,19 +159,21 @@ function Jobs({ jobs }) {
   const [q, setQ] = useState('')
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + j.startTime + ' ' + whenStr(j.startTime)).toLowerCase().includes(t)).slice(0, 300)
+    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + (j.catName || '') + ' ' + j.startTime + ' ' + whenStr(j.startTime)).toLowerCase().includes(t)).slice(0, 300)
   }, [jobs, q])
   return (
     <div>
       <h2>Jobs ({fmt((jobs || []).length)} runs)</h2>
-      <input className="search" placeholder="Search size, file, month (e.g. 30x20 or Jun)" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="search" placeholder="Search name, size, file, month (e.g. table leg or Jun)" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="joblist">
         {rows.map((j) => (
           <div className="jobcard" key={j.workUuid}>
             <div className="jobcard-head">
-              <span className={'chip' + (j.hasSize ? '' : ' warn')}>{j.sizeKey}</span>
+              {j.catPhoto && <img className="jobthumb" src={j.catPhoto} alt="" />}
+              <span className={'chip' + (j.hasSize ? '' : ' warn')}>{j.catName || j.sizeKey}</span>
               <span className="jobcard-when">{whenStr(j.startTime)}</span>
             </div>
+            {j.catName && <div className="jobcard-sub">{j.sizeKey} · {j.file}</div>}
             <div className="jobcard-stats">
               <div><b>{fmt(j.partAmount)}</b><span>pieces</span></div>
               <div><b>{((j.timeTaken || 0) / 60).toFixed(1)}</b><span>min</span></div>
@@ -188,6 +191,14 @@ function Jobs({ jobs }) {
 function BySize({ jobs, cfg, mo }) {
   const rows = groupBySize(jobs)
   const charge = cfg.chargePerMin || 40
+  // catalog name/photo per size: group tagged jobs by sizeKey, then resolve a single name.
+  const catBySize = useMemo(() => {
+    const bySize = {}
+    for (const j of jobs || []) (bySize[j.sizeKey] = bySize[j.sizeKey] || []).push(j)
+    const m = {}
+    for (const k in bySize) m[k] = sizeCatalog(bySize[k])
+    return m
+  }, [jobs])
   return (
     <div>
       <h2>By size ({rows.length})</h2>
@@ -198,9 +209,14 @@ function BySize({ jobs, cfg, mo }) {
           const spp = s.secPerPiece || 0
           const chgPc = (spp / 60) * charge
           const costPc = (spp / 60) * mo.costPerBillMin
+          const cat = catBySize[s.sizeKey]
           return (
             <div className="tr sz4" key={s.sizeKey}>
-              <span className={'szcell' + (s.hasSize ? '' : ' isname')}><i className={'dot' + (s.hasSize ? '' : ' warn')} />{s.sizeKey}</span>
+              <span className={'szcell' + (s.hasSize ? '' : ' isname')}>
+                {cat && cat.photo && <img className="szthumb" src={cat.photo} alt="" />}
+                {!cat && <i className={'dot' + (s.hasSize ? '' : ' warn')} />}
+                {cat ? cat.name : s.sizeKey}
+              </span>
               <span>{fmt(s.pieces)}</span>
               <span>{'₹' + chgPc.toFixed(2)}</span>
               <span style={{ color: chgPc - costPc >= 0 ? '#34d399' : '#f87171' }}>{'₹' + (chgPc - costPc).toFixed(2)}</span>
@@ -598,8 +614,8 @@ function Users() {
     </div>
   )
 }
-function Admin({ meta, days, jobs, onSaved }) {
-  return (<div><MeterEntry /><Sep /><JobCatalog /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+function Admin({ meta, days, jobs, onSaved, onCatalogSaved }) {
+  return (<div><MeterEntry /><Sep /><JobCatalog onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
 }
 
 /* ---------- shell ---------- */
@@ -664,7 +680,7 @@ function MeterEntry() {
   )
 }
 
-function JobCatalog() {
+function JobCatalog({ onSaved }) {
   const [list, setList] = useState(null)
   const [q, setQ] = useState('')
   const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [fileName, setFileName] = useState('')
@@ -675,7 +691,7 @@ function JobCatalog() {
   const save = async () => {
     if (!name.trim()) { setMsg('Give the job a name.'); return }
     setBusy(true); setMsg('')
-    try { await saveCatalogJob({ name, photo, fileName }); setName(''); setPhoto(''); setFileName(''); setMsg('✓ Saved'); await load() }
+    try { await saveCatalogJob({ name, photo, fileName }); setName(''); setPhoto(''); setFileName(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
     catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
@@ -731,6 +747,7 @@ export default function App() {
   const [core, setCore] = useState(null)
   const [jobs, setJobs] = useState(null)
   const [sizeMap, setSizeMap] = useState({})
+  const [catalog, setCatalog] = useState([])
   const [err, setErr] = useState('')
   const [user, setUser] = useState(undefined) // undefined = checking, null = signed out
   const [role, setRole] = useState(undefined) // undefined=checking, null=not allowed, 'owner'|'meter'
@@ -744,11 +761,13 @@ export default function App() {
     loadCore().then(setCore).catch((e) => setErr(e.message))
     loadJobs().then(setJobs).catch((e) => setErr(e.message))
     loadSizeMap().then(setSizeMap).catch(() => {})
+    loadCatalog().then(setCatalog).catch(() => {})
   }, [role, refreshKey])
 
   const refresh = () => { forceRefresh(); setErr(''); setCore(null); setJobs(null); setRefreshKey((k) => k + 1) }
 
-  const mappedJobs = useMemo(() => enrichJobs(jobs || [], sizeMap), [jobs, sizeMap])
+  const catIdx = useMemo(() => buildCatalogIndex(catalog), [catalog])
+  const mappedJobs = useMemo(() => tagJobs(enrichJobs(jobs || [], sizeMap), catIdx), [jobs, sizeMap, catIdx])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
 
   if (user === undefined || (user && role === undefined)) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
@@ -790,7 +809,7 @@ export default function App() {
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
-        {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} /> : <Loading />)}
+        {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} /> : <Loading />)}
       </main>
       <nav className="tabs">
         {TABS.map((t) => <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}
