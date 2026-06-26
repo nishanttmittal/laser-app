@@ -35,7 +35,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; }
 .card-t { font-size: 13px; color: var(--mut); text-transform: none; letter-spacing: 0; }
-.card-v { font-size: 28px; font-weight: 700; margin-top: 6px; font-family: inherit; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+.card-v { font-size: 28px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
 .card-s { font-size: 12px; color: var(--mut); margin-top: 3px; }
 
 /* bar charts */
@@ -45,7 +45,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .bar { width: 68%; background: linear-gradient(180deg, #2b6fd0, #1d4ed8); border-radius: 3px 3px 0 0; min-height: 3px; }
 .bar.prod { background: linear-gradient(180deg, var(--accent), #0ea5e9); }
 .bar-x { font-size: 10px; color: var(--faint); font-family: inherit; }
-.bar-v { font-size: 10px; color: var(--mut); height: 12px; font-family: inherit; }
+.bar-v { font-size: 10px; color: var(--mut); height: 12px; }
 
 /* notes */
 .note { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
@@ -72,7 +72,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   font-weight: 700; font-size: 11px; text-transform: none; letter-spacing: .2px; }
 /* first column = label (left); the rest = numbers (right, aligned) */
 .tr > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tr > span:not(:first-child) { text-align: right; font-family: inherit; font-variant-numeric: tabular-nums; }
+.tr > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .tr > span:first-child { font-weight: 600; }
 .tr .isname { font-weight: 400; font-style: italic; color: var(--mut); }
 .tr .warn { color: var(--amber); font-weight: 700; }
@@ -94,7 +94,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .jobcard-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
 .jobcard-stats > div { display: flex; flex-direction: column; align-items: center; gap: 3px;
   background: var(--panel2); border-radius: 9px; padding: 9px 4px; }
-.jobcard-stats b { font-size: 19px; font-weight: 700; font-family: inherit; font-variant-numeric: tabular-nums; }
+.jobcard-stats b { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .jobcard-stats span { font-size: 11px; color: var(--mut); text-transform: none; letter-spacing: 0; }
 
 /* quote */
