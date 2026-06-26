@@ -187,3 +187,13 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .loader { text-align: center; color: var(--mut); padding: 48px 0; font-size: 14px; }
 .quote label.chk { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--mut); font-weight: 500; }
 .quote label.chk input { width: auto; flex: 0 0 auto; transform: scale(1.2); accent-color: var(--accent); }
+
+/* ---- job catalog ---- */
+.catimg { max-width: 160px; border-radius: 10px; border: 1px solid var(--line); margin-top: 2px; }
+.catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 11px; margin-top: 12px; }
+.catcard { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.catcard img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+.catnoimg { width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
+  color: var(--faint); font-size: 12px; background: var(--panel); }
+.catname { padding: 8px 10px 2px; font-weight: 600; font-size: 13px; color: var(--txt); }
+.catfile { padding: 0 10px 9px; font-family: var(--mono); font-size: 11px; color: var(--accent); word-break: break-all; }

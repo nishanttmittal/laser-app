@@ -1,5 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, forceRefresh } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, loadCatalog, saveCatalogJob, forceRefresh } from './firebase'
+
+// Downscale a phone photo to a small JPEG data URL (keeps Firestore docs tiny).
+function compressImage(file, maxDim = 600, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
+      const c = document.createElement('canvas'); c.width = w; c.height = h
+      c.getContext('2d').drawImage(img, 0, 0, w, h)
+      resolve(c.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
+  })
+}
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
@@ -583,7 +599,7 @@ function Users() {
   )
 }
 function Admin({ meta, days, jobs, onSaved }) {
-  return (<div><MeterEntry /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+  return (<div><MeterEntry /><Sep /><JobCatalog /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
 }
 
 /* ---------- shell ---------- */
@@ -648,13 +664,62 @@ function MeterEntry() {
   )
 }
 
+function JobCatalog() {
+  const [list, setList] = useState(null)
+  const [q, setQ] = useState('')
+  const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [fileName, setFileName] = useState('')
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('')
+  const load = () => loadCatalog().then(setList).catch(() => setList([]))
+  useEffect(() => { load() }, [])
+  const onPhoto = async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; try { setPhoto(await compressImage(f)) } catch { setMsg('Could not read that photo.') } }
+  const save = async () => {
+    if (!name.trim()) { setMsg('Give the job a name.'); return }
+    setBusy(true); setMsg('')
+    try { await saveCatalogJob({ name, photo, fileName }); setName(''); setPhoto(''); setFileName(''); setMsg('✓ Saved'); await load() }
+    catch (e) { setMsg('Could not save: ' + e.message) }
+    finally { setBusy(false) }
+  }
+  const rows = (list || []).filter((j) => !q || (`${j.name} ${j.fileName || ''}`).toLowerCase().includes(q.toLowerCase()))
+  return (
+    <div>
+      <h2>Job catalog</h2>
+      <div className="note">Photograph the job, name it, and (optional) link the machine file. Names are reusable; tagged files show the name in the rest of the app.</div>
+      <div className="quote">
+        <label>Job name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Varun table leg" /></label>
+        <label>Photo<input type="file" accept="image/*" capture="environment" onChange={onPhoto} /></label>
+        {photo && <img src={photo} alt="" className="catimg" />}
+        <label>Link machine file (optional)<input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder="e.g. 858x6010x31.75.zzx" /></label>
+      </div>
+      <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save job'}</button>
+      {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
+      <input className="search" placeholder="Search saved jobs" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginTop: 14 }} />
+      <div className="catgrid">
+        {rows.map((j) => (
+          <div className="catcard" key={j.id}>
+            {j.photo ? <img src={j.photo} alt={j.name} /> : <div className="catnoimg">no photo</div>}
+            <div className="catname">{j.name}</div>
+            {j.fileName && <div className="catfile">{j.fileName}</div>}
+          </div>
+        ))}
+        {list && !rows.length && <div className="note">No jobs saved yet — add the first one above.</div>}
+        {!list && <div className="note">Loading…</div>}
+      </div>
+    </div>
+  )
+}
+
 function StaffMeter({ user }) {
+  const [t, setT] = useState('Meter')
   return (
     <div className="app">
-      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser · Meter</span>
+      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 'auto' }}>Sign out</button>
       </header>
-      <main><MeterEntry /><div className="note">Signed in as {user.email}</div></main>
+      <main>{t === 'Meter' ? <MeterEntry /> : <JobCatalog />}<div className="note">Signed in as {user.email}</div></main>
+      <nav className="tabs">
+        <button className={t === 'Meter' ? 'on' : ''} onClick={() => setT('Meter')}>Meter</button>
+        <button className={t === 'Jobs' ? 'on' : ''} onClick={() => setT('Jobs')}>Jobs</button>
+      </nav>
     </div>
   )
 }

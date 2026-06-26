@@ -58,6 +58,19 @@ export async function saveUser({ email, role, active }) {
   await setDoc(doc(db, 'apps', 'laser', 'users', id), { email: id, role: role || 'meter', active: active !== false, updatedAt: Date.now() }, { merge: true })
 }
 
+// ---- Job catalog (name + photo, optional machine-file link) ----
+export async function loadCatalog() {
+  const snap = await getDocs(query(collection(db, 'laser_job_catalog'), where('cardId', '==', CARD)))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+export async function saveCatalogJob({ id, name, photo, fileName, notes }) {
+  const docId = id || `${CARD}_${Date.now()}`
+  await setDoc(doc(db, 'laser_job_catalog', docId), {
+    cardId: CARD, name: name || '', photo: photo || '', fileName: (fileName || '').trim(), notes: notes || '', updatedAt: Date.now(),
+  }, { merge: true })
+  return docId
+}
+
 // Staff/owner record the daily meter (two cumulative readings). One doc per date.
 export async function saveMeterReading({ date, meterA, meterB, note }) {
   const ymd = String(date).replace(/-/g, '')
