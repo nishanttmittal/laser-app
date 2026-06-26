@@ -108,6 +108,9 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .periodbar button { flex: 1; min-width: 64px; padding: 8px 6px; border: 1px solid var(--line);
   background: var(--panel2); color: var(--mut); border-radius: 9px; font-size: 12px; font-weight: 600; }
 .periodbar button.on { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,.10); }
+.periodbar .datepick { flex: 1; min-width: 120px; padding: 7px 8px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--mut); border-radius: 9px; font-size: 12px; font-weight: 600; }
+.periodbar .datepick.on { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,.10); }
 
 .todaystrip { background: var(--panel2); border: 1px dashed var(--line); border-radius: 10px;
   padding: 9px 12px; font-size: 13px; color: var(--mut); margin: 0 0 12px; }

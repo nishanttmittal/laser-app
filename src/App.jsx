@@ -479,7 +479,7 @@ function Margin({ days, cfg, mo }) {
 }
 
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Day', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Margin', 'Reports', 'Fix sizes', 'Machine']
+const TABS = ['Dashboard', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Margin', 'Reports', 'Fix sizes', 'Machine']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 function Login() {
   const [busy, setBusy] = useState(false)
@@ -505,6 +505,7 @@ function Unauthorized({ email }) {
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
   const [period, setPeriod] = useState('month')
+  const [customDate, setCustomDate] = useState('')
   const [core, setCore] = useState(null)
   const [jobs, setJobs] = useState(null)
   const [sizeMap, setSizeMap] = useState({})
@@ -537,7 +538,9 @@ export default function App() {
   const ready = jobs != null
 
   const todayY = ymd(new Date())
-  const range = periodRange(period, todayY)
+  const range = customDate
+    ? { from: +customDate.replace(/-/g, ''), to: +customDate.replace(/-/g, '') } // single picked day
+    : periodRange(period, todayY)
   const vdays = filterDaysByRange(days, range)
   const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
   const showPeriod = ['Dashboard', 'By Size', 'Reports', 'Utilization'].includes(tab)
@@ -552,13 +555,13 @@ export default function App() {
       {showPeriod && (
         <div className="periodbar">
           {PERIODS.map(([k, l]) => (
-            <button key={k} className={period === k ? 'on' : ''} onClick={() => setPeriod(k)}>{l}</button>
+            <button key={k} className={!customDate && period === k ? 'on' : ''} onClick={() => { setPeriod(k); setCustomDate('') }}>{l}</button>
           ))}
+          <input type="date" className={'datepick' + (customDate ? ' on' : '')} value={customDate} max={`${String(todayY).slice(0,4)}-${String(todayY).slice(4,6)}-${String(todayY).slice(6,8)}`} onChange={(e) => setCustomDate(e.target.value)} title="Pick a specific day" />
         </div>
       )}
       <main>
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
-        {tab === 'Day' && (ready ? <DayDetail days={days} jobs={mappedJobs} cfg={cfg} /> : <Loading />)}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Jobs' && (ready ? <Jobs jobs={mappedJobs} /> : <Loading />)}
         {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
