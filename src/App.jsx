@@ -5,15 +5,21 @@ import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGo
 function compressImage(file, maxDim = 600, quality = 0.6) {
   return new Promise((resolve, reject) => {
     const img = new Image()
+    const url = URL.createObjectURL(file)
+    const done = (fn, arg) => { URL.revokeObjectURL(url); fn(arg) }
     img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
-      const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
-      const c = document.createElement('canvas'); c.width = w; c.height = h
-      c.getContext('2d').drawImage(img, 0, 0, w, h)
-      resolve(c.toDataURL('image/jpeg', quality))
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
+        const c = document.createElement('canvas'); c.width = w; c.height = h
+        const ctx = c.getContext('2d')
+        if (!ctx) throw new Error('no canvas context')
+        ctx.drawImage(img, 0, 0, w, h)
+        done(resolve, c.toDataURL('image/jpeg', quality))
+      } catch (e) { done(reject, e) }   // never leave the Save flow hanging
     }
-    img.onerror = reject
-    img.src = URL.createObjectURL(file)
+    img.onerror = () => done(reject, new Error('image decode failed'))
+    img.src = url
   })
 }
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
@@ -293,7 +299,7 @@ function Costing({ jobs, cfg, mo }) {
         <label>Setup
           <select value={setupType} onChange={(e) => setSetupType(e.target.value)}>
             <option value="dimension">Dimension change (+{cfg.setup?.dimensionChangeMin ?? 40}m)</option>
-            <option value="length">Length change (+{Math.round((cfg.setup?.lengthChangeMin ?? 0.33) * 60)} sec)</option>
+            <option value="length">Length change (+{Math.round((cfg.setup?.lengthChangeMin ?? 1) * 60)} sec)</option>
             <option value="none">No setup</option>
           </select>
         </label>
@@ -446,7 +452,25 @@ function Assign({ jobs, onSaved }) {
 
 const StatusStrip = ({ meta }) => {
   const s = stateLabel(meta && meta.deviceState)
-  return <div className={'statusstrip ' + s.tone}><span className="dotlive" />Machine now: <b>{s.text}</b></div>
+  return <div className={'statusstrip ' + s.tone}><span className="dotlive" />Machine (last sync): <b>{s.text}</b></div>
+}
+
+// Shows how fresh the data is. Costing/margins drift silently if the nightly sync stops —
+// this is the only visible signal that the numbers are running on stale data.
+function FreshnessBanner({ days }) {
+  const dd = (days || []).filter((d) => d.statDate)
+  if (!dd.length) return null
+  const latest = String(dd.reduce((a, d) => Math.max(a, +d.statDate), 0))
+  const y = +latest.slice(0, 4), m = +latest.slice(4, 6) - 1, day = +latest.slice(6, 8)
+  const daysAgo = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(y, m, day).getTime()) / 864e5)
+  // Sync runs nightly for the previous day, so "1 day ago" is normal/current.
+  const stale = daysAgo >= 2
+  return (
+    <div className={'freshbar' + (stale ? ' stale' : '')}>
+      {stale ? '⚠ ' : ''}Data as of <b>{prettyYmd(latest)}</b>
+      {daysAgo <= 1 ? ' · current' : ` · ${daysAgo} days ago — the nightly sync may have stopped`}
+    </div>
+  )
 }
 
 function Utilization({ days, meta }) {
@@ -786,7 +810,7 @@ export default function App() {
     : periodRange(period, todayY)
   const vdays = filterDaysByRange(days, range)
   const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
-  const showPeriod = ['Dashboard', 'Utilization', 'Production', 'Reports'].includes(tab)
+  const showPeriod = ['Dashboard', 'Utilization', 'Production'].includes(tab)
 
   return (
     <div className="app">
@@ -804,11 +828,12 @@ export default function App() {
         </div>
       )}
       <main>
+        <FreshnessBanner days={days} />
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
+        {tab === 'Reports' && <Reports days={days} cfg={cfg} />}
         {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} /> : <Loading />)}
       </main>
       <nav className="tabs">

@@ -43,7 +43,9 @@ export async function getRole(user) {
   if (BOOTSTRAP.includes(email)) return 'owner'
   try {
     const s = await getDoc(doc(db, 'apps', 'laser', 'users', email))
-    if (s.exists() && s.data().active) return s.data().role || 'owner'
+    // Default to the LEAST-privileged role: a doc missing `role` must not silently
+    // become owner (that would leak costing/margins). Owner is granted only explicitly.
+    if (s.exists() && s.data().active) return s.data().role || 'meter'
   } catch { /* denied */ }
   return null
 }
@@ -59,15 +61,30 @@ export async function saveUser({ email, role, active }) {
 }
 
 // ---- Job catalog (name + photo, optional machine-file link) ----
+// Catalog docs carry base64 photos, so reads are heavy. Cache like the rest of the app:
+// one read per day, shared across every caller (owner join + worker Jobs tab) via _catalog.
+const CAT_KEY = `laser_catalog_${CARD}`
+let _catalog = null
 export async function loadCatalog() {
-  const snap = await getDocs(query(collection(db, 'laser_job_catalog'), where('cardId', '==', CARD)))
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+  if (_catalog) return _catalog                                   // same session -> no read
+  const cached = _ls.get(CAT_KEY)
+  if (cached && cached.day === today() && cached.list) { _catalog = cached.list; return _catalog }
+  try {
+    const snap = await getDocs(query(collection(db, 'laser_job_catalog'), where('cardId', '==', CARD)))
+    _catalog = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    _ls.set(CAT_KEY, { day: today(), list: _catalog })            // best-effort; lsSet no-ops if too big for storage
+    return _catalog
+  } catch (e) {
+    if (cached && cached.list) { _catalog = cached.list; return _catalog } // quota/offline -> last cache
+    throw e
+  }
 }
 export async function saveCatalogJob({ id, name, photo, fileName, notes }) {
   const docId = id || `${CARD}_${Date.now()}`
   await setDoc(doc(db, 'laser_job_catalog', docId), {
     cardId: CARD, name: name || '', photo: photo || '', fileName: (fileName || '').trim(), notes: notes || '', updatedAt: Date.now(),
   }, { merge: true })
+  _catalog = null; try { localStorage.removeItem(CAT_KEY) } catch { /* ignore */ } // invalidate -> next load re-reads
   return docId
 }
 
@@ -93,8 +110,10 @@ export function forceRefresh() {
   try {
     const c = _ls.get(CORE_KEY); if (c) _ls.set(CORE_KEY, { ...c, day: '' })
     const m = lsGet(META_KEY); if (m) lsSet(META_KEY, { ...m, lastReadDay: '' })
+    localStorage.removeItem(CAT_KEY)
   } catch { /* ignore */ }
   _jobs = null
+  _catalog = null
 }
 
 export async function loadCore() {

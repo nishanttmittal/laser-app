@@ -68,7 +68,7 @@ export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cf
   const cutMin = (qtyCut * secPerPiece) / 60;
   const setupMin =
     setupType === 'dimension' ? (sc.dimensionChangeMin ?? 40) :
-    setupType === 'length' ? (sc.lengthChangeMin ?? 0.33) : 0;
+    setupType === 'length' ? (sc.lengthChangeMin ?? 1) : 0;
   // One-time nesting/programming for a brand-new part.
   const progMin = newPart ? (cfg.programmingMin ?? 0) : 0;
   // Explicit per-tube loading from the size's historical pieces-per-tube (on the cut qty).
