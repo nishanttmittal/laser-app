@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "vite build",
-    "deploy": "gh-pages -d dist --dotfiles --nojekyll"
+    "deploy": "gh-pages -d dist --dotfiles --nojekyll",
+    "test": "node --test src/lib/*.test.js"
   },
   "dependencies": {
     "firebase": "^11.0.0",

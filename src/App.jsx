@@ -5,34 +5,10 @@ import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } fro
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 import { periodUtil, stateLabel } from './lib/util.js'
+import { monthlyCost, quoteJob } from './lib/costing.js'
 
 /* ---------- helpers ---------- */
-function useMonthly(days, jobs, cfg) {
-  return useMemo(() => {
-    const dd = days.filter((d) => d.cutTime)
-    const totalCutMin = dd.reduce((a, d) => a + (d.cutTime || 0) / 60, 0)
-    const ds = dd.map((d) => String(d.statDate)).sort()
-    const toD = (s) => new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`)
-    const span = ds.length > 1 ? Math.max(1, (toD(ds[ds.length - 1]) - toD(ds[0])) / 864e5 + 1) : 30
-    const mCut = (totalCutMin / span) * 30
-    // Setup minutes from the owner's real per-cutting-day changeover rate (not the noisy
-    // "every file change = a setup" inference, which over-counted size changes ~8/day).
-    const cuttingDaysPerMonth = (dd.length / span) * 30
-    const sc = cfg.setup || {}
-    const setupPerDay = (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40) + (sc.lengthChangesPerDay ?? 3.5) * (sc.lengthChangeMin ?? 15)
-    const mSetup = cuttingDaysPerMonth * setupPerDay
-    const mBill = mCut + mSetup || 1
-    // Monthly electricity from REAL kWh on laser_days (calibrated to the meter), normalized
-    // to 30 days — replaces the old static estimate so Costing == Dashboard.
-    const rate = cfg.electricityRate || 14
-    const totalKWh = dd.reduce((a, d) => a + (d.kWh || 0), 0)
-    const mElec = Math.round(((totalKWh / span) * 30) * rate)
-    const f = cfg.monthlyFixed || {}
-    const fixedExclElec = (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0)
-    const totalMonthly = fixedExclElec + mElec
-    return { mCut, mSetup, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec }
-  }, [days, jobs, cfg])
-}
+const useMonthly = (days, _jobs, cfg) => useMemo(() => monthlyCost(days, cfg), [days, cfg])
 
 function piecesByDay(jobs) {
   const m = {}
@@ -214,13 +190,8 @@ function Costing({ jobs, cfg, mo }) {
   const charge = cfg.chargePerMin || 40
   const sel = sizes.find((s) => s.sizeKey === sizeKey)
   const spp = sel && sel.pieces ? sel.sec / sel.pieces : 0
-  const cutMin = (qty * spp) / 60
-  const setupMin = setupType === 'dimension' ? (cfg.setup?.dimensionChangeMin ?? 40) : setupType === 'length' ? (cfg.setup?.lengthChangeMin ?? 15) : 0
-  const stdMin = cutMin + setupMin
-  const isLong = stdMin > (cfg.longJob?.thresholdMin ?? 0) // threshold 0 => loading & QC buffer on all jobs
-  const billMin = isLong ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin
-  const quoteCharge = billMin * charge
-  const quoteCost = billMin * mo.costPerBillMin
+  const { cutMin, setupMin, stdMin, isBuffered: isLong, billMin, quoteCharge, quoteCost } =
+    quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin })
   const shareQuote = async () => {
     // customer-facing ONLY — never include cost or margin
     const text = [

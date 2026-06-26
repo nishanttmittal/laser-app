@@ -1,25 +1,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { utilSummary, stateLabel } from './util.js';
+import { periodUtil, stateLabel } from './util.js';
 
-test('utilSummary sums fields and computes honest laser-util %', () => {
+test('periodUtil: powered-on % and cutting % over the days that have timeline data', () => {
   const days = [
-    { laserOnH: 1.9, idleTimeH: 4.62, processingH: 3.08, activeH: 6.52, alarmTimeMin: 0.1, gasOnH: 2.59 },
-    { laserOnH: 0.1, idleTimeH: 4.25, processingH: 0.03, activeH: 4.35, alarmTimeMin: 0.2, gasOnH: 0.02 },
+    { runningH: 12, workH: 6, offlineH: 12, alarmCount: 1, alarmPeriodH: 0.1 },
+    { runningH: 12, workH: 6, offlineH: 12, alarmCount: 0, alarmPeriodH: 0 },
   ];
-  const s = utilSummary(days);
-  assert.equal(s.laserOnH, 2.0);
-  assert.equal(s.idleH, 8.87);
-  assert.equal(s.activeH, 10.87);
-  assert.equal(s.alarmMin, 0.3);
-  assert.equal(s.laserUtilPct, +(2.0 / 10.87 * 100).toFixed(1));
+  const u = periodUtil(days);
+  assert.equal(u.nDays, 2);
+  assert.equal(u.runningH, 24);
+  assert.equal(u.workH, 12);
+  assert.equal(u.offlineH, 24);
+  assert.equal(u.idleH, 12);          // running 24 - work 12
+  assert.equal(u.alarmCount, 1);
+  assert.equal(u.powerOnPct, 50);     // 24 / (2*24) * 100
+  assert.equal(u.workUtilPct, 50);    // 12 / 24 * 100
 });
-test('utilSummary tolerates missing fields (pre-Phase-2 docs) -> zeros', () => {
-  const s = utilSummary([{ laserOnH: 1 }, {}]);
-  assert.equal(s.laserOnH, 1);
-  assert.equal(s.idleH, 0);
-  assert.equal(s.laserUtilPct, 0); // activeH 0 -> guard
+
+test('periodUtil: ignores days without timeline (runningH null) ', () => {
+  const u = periodUtil([{ runningH: 8, workH: 4, offlineH: 16 }, { pieces: 100 }, {}]);
+  assert.equal(u.nDays, 1);
+  assert.equal(u.runningH, 8);
+  assert.equal(u.powerOnPct, +(8 / 24 * 100).toFixed(1));
 });
+
+test('periodUtil: empty / no-timeline input -> zeros, no divide-by-zero', () => {
+  const u = periodUtil([]);
+  assert.equal(u.nDays, 0);
+  assert.equal(u.powerOnPct, 0);
+  assert.equal(u.workUtilPct, 0);
+});
+
 test('stateLabel maps device states to friendly text', () => {
   assert.equal(stateLabel('RUNNING').text, 'Running');
   assert.equal(stateLabel('OFFLINE').text, 'Offline');
