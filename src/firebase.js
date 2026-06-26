@@ -48,6 +48,16 @@ export async function getRole(user) {
   return null
 }
 
+// ---- Users & access (owner only) ----
+export async function listUsers() {
+  const snap = await getDocs(collection(db, 'apps', 'laser', 'users'))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+export async function saveUser({ email, role, active }) {
+  const id = String(email).toLowerCase().trim()
+  await setDoc(doc(db, 'apps', 'laser', 'users', id), { email: id, role: role || 'meter', active: active !== false, updatedAt: Date.now() }, { merge: true })
+}
+
 // Staff/owner record the daily meter (two cumulative readings). One doc per date.
 export async function saveMeterReading({ date, meterA, meterB, note }) {
   const ymd = String(date).replace(/-/g, '')

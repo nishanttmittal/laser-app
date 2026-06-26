@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, forceRefresh } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, forceRefresh } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
@@ -478,8 +478,53 @@ function Margin({ days, cfg, mo }) {
   )
 }
 
+const Sep = () => <div className="sep" />
+
+function Production({ jobs, vjobs, cfg, mo }) {
+  return (<div><Jobs jobs={jobs} /><Sep /><BySize jobs={vjobs} cfg={cfg} mo={mo} /></div>)
+}
+function CostingTab({ jobs, days, cfg, mo }) {
+  return (<div><Costing jobs={jobs} cfg={cfg} mo={mo} /><Sep /><Margin days={days} cfg={cfg} mo={mo} /></div>)
+}
+function Users() {
+  const [list, setList] = useState(null)
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('meter')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const load = () => listUsers().then(setList).catch(() => setList([]))
+  useEffect(() => { load() }, [])
+  const add = async () => {
+    if (!email.trim()) { setMsg('Enter an email.'); return }
+    setBusy(true); setMsg('')
+    try { await saveUser({ email, role, active: true }); setEmail(''); setMsg('✓ Added'); await load() }
+    catch (e) { setMsg('Could not save: ' + e.message) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div>
+      <h2>Users &amp; access</h2>
+      <div className="note"><b>Meter</b> = staff, sees only the meter screen. <b>Owner</b> = full access. You (bootstrap owner) are always allowed.</div>
+      <div className="quote">
+        <label>Google email<input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@gmail.com" /></label>
+        <label>Role<select value={role} onChange={(e) => setRole(e.target.value)}><option value="meter">Meter (staff)</option><option value="owner">Owner</option></select></label>
+      </div>
+      <button className="btn" disabled={busy} onClick={add}>{busy ? 'Adding…' : 'Add user'}</button>
+      {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
+      <div className="tbl">
+        <div className="tr th"><span>Email</span><span>Role</span><span>Active</span><span /><span /></div>
+        {(list || []).map((u) => <div className="tr" key={u.id}><span>{u.email || u.id}</span><span>{u.role || 'owner'}</span><span>{u.active ? 'yes' : 'no'}</span><span /><span /></div>)}
+        {list && !list.length && <div className="tr"><span>No staff added yet.</span><span /><span /><span /><span /></div>}
+      </div>
+    </div>
+  )
+}
+function Admin({ meta, days, jobs, onSaved }) {
+  return (<div><MeterEntry /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+}
+
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Utilization', 'Jobs', 'By Size', 'Costing', 'Margin', 'Reports', 'Fix sizes', 'Machine']
+const TABS = ['Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 function Login() {
   const [busy, setBusy] = useState(false)
@@ -594,7 +639,7 @@ export default function App() {
     : periodRange(period, todayY)
   const vdays = filterDaysByRange(days, range)
   const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
-  const showPeriod = ['Dashboard', 'By Size', 'Reports', 'Utilization'].includes(tab)
+  const showPeriod = ['Dashboard', 'Utilization', 'Production', 'Reports'].includes(tab)
 
   return (
     <div className="app">
@@ -614,13 +659,10 @@ export default function App() {
       <main>
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
-        {tab === 'Jobs' && (ready ? <Jobs jobs={mappedJobs} /> : <Loading />)}
-        {tab === 'By Size' && (ready ? <BySize jobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Costing' && (ready ? <Costing jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Margin' && <Margin days={days} cfg={cfg} mo={mo} />}
+        {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Reports' && <Reports days={vdays} cfg={cfg} />}
-        {tab === 'Fix sizes' && (ready ? <Assign jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} /> : <Loading />)}
-        {tab === 'Machine' && <Machine meta={meta} days={days} jobs={jobs || []} />}
+        {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} /> : <Loading />)}
       </main>
       <nav className="tabs">
         {TABS.map((t) => <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}
