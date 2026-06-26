@@ -34,10 +34,28 @@ export async function signInWithGoogle() {
 }
 export const signOutUser = () => signOut(auth)
 export async function isAllowed(user) {
+  return (await getRole(user)) !== null
+}
+// Returns 'owner' | 'meter' (staff) | null (not allowed). Bootstrap email = owner.
+export async function getRole(user) {
   const email = (user && user.email || '').toLowerCase()
-  if (!email) return false
-  if (BOOTSTRAP.includes(email)) return true
-  try { const s = await getDoc(doc(db, 'apps', 'laser', 'users', email)); return !!(s.exists() && s.data().active) } catch { return false }
+  if (!email) return null
+  if (BOOTSTRAP.includes(email)) return 'owner'
+  try {
+    const s = await getDoc(doc(db, 'apps', 'laser', 'users', email))
+    if (s.exists() && s.data().active) return s.data().role || 'owner'
+  } catch { /* denied */ }
+  return null
+}
+
+// Staff/owner record the daily meter (two cumulative readings). One doc per date.
+export async function saveMeterReading({ date, meterA, meterB, note }) {
+  const ymd = String(date).replace(/-/g, '')
+  const total = (Number(meterA) || 0) + (Number(meterB) || 0)
+  await setDoc(doc(db, 'laser_meter', `${CARD}_${ymd}`), {
+    cardId: CARD, date: ymd, meterA: Number(meterA) || 0, meterB: Number(meterB) || 0, total,
+    note: note || '', enteredAt: Date.now(),
+  }, { merge: true })
 }
 
 export const CARD = '250811133266'

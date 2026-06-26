@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, isAllowed, forceRefresh } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, forceRefresh } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
@@ -502,6 +502,55 @@ function Unauthorized({ email }) {
   )
 }
 
+function MeterEntry() {
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const save = async () => {
+    if (a === '' || b === '') { setMsg('Enter both meter readings.'); return }
+    setBusy(true); setMsg('')
+    try { await saveMeterReading({ date, meterA: a, meterB: b, note }); setMsg('✓ Saved. Thank you!'); setNote('') }
+    catch (e) { setMsg('Could not save: ' + e.message) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div>
+      <h2>Daily meter reading</h2>
+      <div className="note">Enter today's two meter totals (the full number on each meter).</div>
+      <div className="quote">
+        <label>Date
+          <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label>Meter 1 — machine + UPS + dust collector
+          <input type="number" inputMode="decimal" value={a} placeholder="e.g. 2101" onChange={(e) => setA(e.target.value)} />
+        </label>
+        <label>Meter 2 — air compressor
+          <input type="number" inputMode="decimal" value={b} placeholder="e.g. 5157" onChange={(e) => setB(e.target.value)} />
+        </label>
+        <label>Note (optional)
+          <input value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+      </div>
+      <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save reading'}</button>
+      {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
+    </div>
+  )
+}
+
+function StaffMeter({ user }) {
+  return (
+    <div className="app">
+      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser · Meter</span>
+        <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 'auto' }}>Sign out</button>
+      </header>
+      <main><MeterEntry /><div className="note">Signed in as {user.email}</div></main>
+    </div>
+  )
+}
+
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
   const [period, setPeriod] = useState('month')
@@ -511,26 +560,28 @@ export default function App() {
   const [sizeMap, setSizeMap] = useState({})
   const [err, setErr] = useState('')
   const [user, setUser] = useState(undefined) // undefined = checking, null = signed out
-  const [allowed, setAllowed] = useState(false)
+  const [role, setRole] = useState(undefined) // undefined=checking, null=not allowed, 'owner'|'meter'
   const [refreshKey, setRefreshKey] = useState(0)
+  const allowed = role === 'owner' || role === 'meter'
 
-  useEffect(() => onAuth(async (u) => { setUser(u || null); setAllowed(u ? await isAllowed(u) : false) }), [])
+  useEffect(() => onAuth(async (u) => { setUser(u || null); setRole(u ? await getRole(u) : null) }), [])
 
   useEffect(() => {
-    if (!allowed) return
+    if (role !== 'owner') return // only the owner loads the full dataset; staff = meter screen only
     loadCore().then(setCore).catch((e) => setErr(e.message))
     loadJobs().then(setJobs).catch((e) => setErr(e.message))
     loadSizeMap().then(setSizeMap).catch(() => {})
-  }, [allowed, refreshKey])
+  }, [role, refreshKey])
 
   const refresh = () => { forceRefresh(); setErr(''); setCore(null); setJobs(null); setRefreshKey((k) => k + 1) }
 
   const mappedJobs = useMemo(() => enrichJobs(jobs || [], sizeMap), [jobs, sizeMap])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
 
-  if (user === undefined) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
+  if (user === undefined || (user && role === undefined)) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
   if (!user) return <Login />
   if (!allowed) return <Unauthorized email={user.email} />
+  if (role === 'meter') return <StaffMeter user={user} /> // staff: meter screen only
   if (err) return <div className="app"><div className="note err">Could not load data: {err}</div></div>
   if (!core) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
 
