@@ -87,6 +87,20 @@ export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cf
   return { cutMin, setupMin, loadingMin, progMin, qtyCut, tubes, qcMin, stdMin, billMin, rawCharge, quoteCharge, minApplied, quoteCost, margin: quoteCharge - quoteCost };
 }
 
+// Tube piece weight in GRAMS. section = 'AxB' (rect/square) or 'R{D}' (round, D = outer dia).
+// thickness = wall mm, length = mm. density g/cm³ (MS 7.85, SS 8.0). Returns null if it can't.
+export function tubeWeightGrams({ section, thickness, length, density = 7.85 }) {
+  const t = +thickness, L = +length;
+  if (!section || !(t > 0) || !(L > 0)) return null;
+  let area = null; // metal cross-section area, mm²
+  const rect = String(section).match(/(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)/);
+  const round = String(section).match(/^\s*R?\s*(\d+(?:\.\d+)?)\s*$/i);
+  if (rect) { const A = +rect[1], B = +rect[2]; area = A * B - Math.max(0, A - 2 * t) * Math.max(0, B - 2 * t); }
+  else if (round) { const D = +round[1]; area = Math.PI * t * Math.max(0, D - t); }
+  if (!(area > 0)) return null;
+  return area * L * density / 1000; // mm³ × (g/cm³ ÷ 1000) → grams
+}
+
 const fixedTotal = (cfg) => {
   const f = cfg.monthlyFixed || {};
   return (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0);

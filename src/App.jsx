@@ -5,7 +5,7 @@ import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } fro
 import { kWhCost } from './lib/energy.js'
 import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 import { periodUtil, stateLabel } from './lib/util.js'
-import { monthlyCost, quoteJob, whatIf, monthlyMargins } from './lib/costing.js'
+import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
 
 /* ---------- helpers ---------- */
 const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
@@ -500,8 +500,54 @@ const Sep = () => <div className="sep" />
 function Production({ jobs, vjobs, cfg, mo }) {
   return (<div><Jobs jobs={jobs} /><Sep /><BySize jobs={vjobs} cfg={cfg} mo={mo} /></div>)
 }
+function WeightCalc({ cfg }) {
+  const [shape, setShape] = useState('rect')
+  const [a, setA] = useState(''); const [b, setB] = useState(''); const [d, setD] = useState('')
+  const [t, setT] = useState(''); const [len, setLen] = useState(''); const [qty, setQty] = useState(1)
+  const [mat, setMat] = useState('MS')
+  const m = cfg.material || {}
+  const density = mat === 'SS' ? (m.densitySS ?? 8.0) : (m.densityMS ?? 7.85)
+  const rate = mat === 'SS' ? (m.ratePerKgSS ?? 220) : (m.ratePerKgMS ?? 80)
+  const section = shape === 'rect' ? `${a}x${b}` : `R${d}`
+  const g = tubeWeightGrams({ section, thickness: t, length: len, density })
+  const pieceKg = g != null ? g / 1000 : null
+  const orderKg = pieceKg != null ? pieceKg * (qty || 0) : null
+  return (
+    <div>
+      <h2>Weight & material</h2>
+      <div className="note">Auto weight of a cut piece from the tube size. Material is billed separately — this gives you the figure.</div>
+      <div className="quote">
+        <label>Tube shape
+          <select value={shape} onChange={(e) => setShape(e.target.value)}><option value="rect">Rectangular / square</option><option value="round">Round</option></select>
+        </label>
+        {shape === 'rect' ? (
+          <div className="quote" style={{ gridTemplateColumns: '1fr 1fr', margin: 0 }}>
+            <label>Side A (mm)<input type="number" value={a} onChange={(e) => setA(e.target.value)} /></label>
+            <label>Side B (mm)<input type="number" value={b} onChange={(e) => setB(e.target.value)} /></label>
+          </div>
+        ) : <label>Outer diameter (mm)<input type="number" value={d} onChange={(e) => setD(e.target.value)} /></label>}
+        <div className="quote" style={{ gridTemplateColumns: '1fr 1fr', margin: 0 }}>
+          <label>Wall thickness (mm)<input type="number" value={t} onChange={(e) => setT(e.target.value)} /></label>
+          <label>Cut length (mm)<input type="number" value={len} onChange={(e) => setLen(e.target.value)} /></label>
+        </div>
+        <div className="quote" style={{ gridTemplateColumns: '1fr 1fr', margin: 0 }}>
+          <label>Quantity<input type="number" value={qty} onChange={(e) => setQty(+e.target.value || 0)} /></label>
+          <label>Material<select value={mat} onChange={(e) => setMat(e.target.value)}><option value="MS">Mild steel</option><option value="SS">Stainless</option></select></label>
+        </div>
+      </div>
+      {pieceKg != null ? (
+        <div className="grid">
+          <Card title="Per piece" value={`${pieceKg.toFixed(3)} kg`} />
+          <Card title="Per piece material" value={rupee(pieceKg * rate)} sub={`@ ${rupee(rate)}/kg`} />
+          <Card title={`Order weight (${fmt(qty)} pcs)`} value={`${orderKg.toFixed(1)} kg`} accent="#34d399" />
+          <Card title="Order material" value={rupee(orderKg * rate)} accent="#34d399" />
+        </div>
+      ) : <div className="note">Enter the tube size, wall thickness and cut length to get the weight.</div>}
+    </div>
+  )
+}
 function CostingTab({ jobs, days, cfg, mo }) {
-  return (<div><Costing jobs={jobs} cfg={cfg} mo={mo} /><Sep /><Margin days={days} cfg={cfg} mo={mo} /></div>)
+  return (<div><Costing jobs={jobs} cfg={cfg} mo={mo} /><Sep /><WeightCalc cfg={cfg} /><Sep /><Margin days={days} cfg={cfg} mo={mo} /></div>)
 }
 function Users() {
   const [list, setList] = useState(null)

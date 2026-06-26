@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { monthlyCost, quoteJob, countLengthChanges, whatIf, monthlyMargins } from './costing.js';
+import { monthlyCost, quoteJob, countLengthChanges, whatIf, monthlyMargins, tubeWeightGrams } from './costing.js';
 
 const cfg = {
   electricityRate: 14,
@@ -186,4 +186,17 @@ test('quoteJob: minimum order charge floors a tiny job', () => {
   const q = quoteJob({ secPerPiece: 6, qty: 5, setupType: 'none', cfg: { ...cfg, minOrderCharge: 500 }, costPerBillMin: 20 });
   assert.equal(q.minApplied, true);
   assert.equal(q.quoteCharge, 500);               // raw ~22 floored to 500
+});
+
+test('tubeWeightGrams: rectangular MS tube (25x50, t1.2, 1m)', () => {
+  const g = tubeWeightGrams({ section: '25x50', thickness: 1.2, length: 1000, density: 7.85 });
+  assert.equal(Math.round(g), 1368); // metal area 174.24mm² × 1000 × 7.85/1000
+});
+test('tubeWeightGrams: round MS tube (OD50, t2, 1m)', () => {
+  const g = tubeWeightGrams({ section: 'R50', thickness: 2, length: 1000, density: 7.85 });
+  assert.equal(Math.round(g), 2368);
+});
+test('tubeWeightGrams: missing/zero inputs -> null', () => {
+  assert.equal(tubeWeightGrams({ section: '25x50', thickness: 0, length: 1000 }), null);
+  assert.equal(tubeWeightGrams({ section: '', thickness: 1, length: 1000 }), null);
 });
