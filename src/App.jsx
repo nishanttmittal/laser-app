@@ -7,15 +7,6 @@ import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 import { periodUtil, stateLabel } from './lib/util.js'
 
 /* ---------- helpers ---------- */
-function computeSetup(jobs, setupCfg) {
-  const ordered = [...jobs].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
-  let len = 0, dim = 0, lf = null, ls = null
-  for (const j of ordered) {
-    if (j.file !== lf) { if (ls !== null && j.section && j.section === ls) len++; else dim++; lf = j.file; ls = j.section }
-  }
-  return { len, dim, min: len * (setupCfg?.lengthChangeMin ?? 15) + dim * (setupCfg?.dimensionChangeMin ?? 40) }
-}
-
 function useMonthly(days, jobs, cfg) {
   return useMemo(() => {
     const dd = days.filter((d) => d.cutTime)
@@ -24,8 +15,12 @@ function useMonthly(days, jobs, cfg) {
     const toD = (s) => new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`)
     const span = ds.length > 1 ? Math.max(1, (toD(ds[ds.length - 1]) - toD(ds[0])) / 864e5 + 1) : 30
     const mCut = (totalCutMin / span) * 30
-    const setup = jobs ? computeSetup(jobs, cfg.setup) : { min: 0 }
-    const mSetup = (setup.min / span) * 30
+    // Setup minutes from the owner's real per-cutting-day changeover rate (not the noisy
+    // "every file change = a setup" inference, which over-counted size changes ~8/day).
+    const cuttingDaysPerMonth = (dd.length / span) * 30
+    const sc = cfg.setup || {}
+    const setupPerDay = (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40) + (sc.lengthChangesPerDay ?? 3.5) * (sc.lengthChangeMin ?? 15)
+    const mSetup = cuttingDaysPerMonth * setupPerDay
     const mBill = mCut + mSetup || 1
     // Monthly electricity from REAL kWh on laser_days (calibrated to the meter), normalized
     // to 30 days — replaces the old static estimate so Costing == Dashboard.
@@ -259,7 +254,7 @@ function Costing({ jobs, cfg, mo }) {
       <div className="grid">
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
         <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
-        <Card title="Setup (length / dim)" value={`${cfg.setup?.lengthChangeMin ?? 15} / ${cfg.setup?.dimensionChangeMin ?? 40} min`} />
+        <Card title="Setups / cutting day" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size · ${cfg.setup?.lengthChangesPerDay ?? 3.5} length`} sub={`${cfg.setup?.dimensionChangeMin ?? 40} / ${cfg.setup?.lengthChangeMin ?? 15} min each`} />
         <Card title="Long job +20% over" value={`${cfg.longJob?.thresholdMin ?? 60} min`} />
       </div>
 
