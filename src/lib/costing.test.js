@@ -106,6 +106,34 @@ test('countLengthChanges: jobs with no parsed length are skipped', () => {
   assert.equal(countLengthChanges(jobs), 1);
 });
 
+test('monthlyCost: explicit per-tube loading scales with run/tube count', () => {
+  // days carry per-day runs; tubes ~= runs. 18s/tube over a 30-day span.
+  const cfgL = { ...cfg, setup: { ...cfg.setup, loadSecPerTube: 18 } };
+  const withRuns = [
+    { statDate: 20260101, cutTime: 3600, kWh: 100, runs: 50 },
+    { statDate: 20260130, cutTime: 3600, kWh: 100, runs: 50 },
+  ];
+  const m = monthlyCost(withRuns, cfgL);
+  assert.equal(m.tubesInSpan, 100);
+  assert.ok(Math.abs(m.mLoading - 30) < 1e-9);            // 100 tubes * 18s = 30 min
+  assert.ok(Math.abs(m.mBill - (m.mCut + m.mSetup + m.mLoading)) < 1e-9);
+});
+
+test('quoteJob: explicit loading from pieces-per-tube (tubes = ceil(qty / pcsPerTube))', () => {
+  // 500 pcs at 100 pcs/tube -> 5 tubes -> 5 * 18s = 1.5 min loading (default loadSecPerTube 18)
+  const q = quoteJob({ secPerPiece: 6, qty: 500, setupType: 'none', cfg, costPerBillMin: 20, piecesPerTube: 100 });
+  assert.equal(q.tubes, 5);
+  assert.equal(+q.loadingMin.toFixed(2), 1.5);
+  assert.equal(q.cutMin, 50);                            // 500 * 6 / 60
+  assert.equal(+q.stdMin.toFixed(2), 51.5);              // 50 cut + 0 setup + 1.5 loading
+});
+
+test('quoteJob: no pieces-per-tube -> no loading (graceful)', () => {
+  const q = quoteJob({ secPerPiece: 6, qty: 100, setupType: 'none', cfg, costPerBillMin: 20, piecesPerTube: 0 });
+  assert.equal(q.tubes, 0);
+  assert.equal(q.loadingMin, 0);
+});
+
 test('monthlyCost: length setup is DATA-derived from job transitions when jobs given', () => {
   const cfgL = { ...cfg, setup: { ...cfg.setup, lengthChangeMin: 1 } };
   const jobs = [

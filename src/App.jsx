@@ -190,8 +190,9 @@ function Costing({ jobs, cfg, mo }) {
   const charge = cfg.chargePerMin || 40
   const sel = sizes.find((s) => s.sizeKey === sizeKey)
   const spp = sel && sel.pieces ? sel.sec / sel.pieces : 0
-  const { cutMin, setupMin, stdMin, isBuffered: isLong, billMin, quoteCharge, quoteCost } =
-    quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin })
+  const piecesPerTube = sel && sel.runs ? sel.pieces / sel.runs : 0
+  const { cutMin, setupMin, loadingMin, tubes, stdMin, isBuffered: isLong, billMin, quoteCharge, quoteCost } =
+    quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin, piecesPerTube })
   const shareQuote = async () => {
     // customer-facing ONLY — never include cost or margin
     const text = [
@@ -226,7 +227,8 @@ function Costing({ jobs, cfg, mo }) {
         <Card title="Cost / billable-min" value={rupee(mo.costPerBillMin)} />
         <Card title="Charge / min" value={rupee(charge)} accent="#34d399" />
         <Card title="Setup basis" value={`${cfg.setup?.sizeChangesPerDay ?? 5.5} size-changes/day`} sub={`× ${cfg.setup?.dimensionChangeMin ?? 40} min + length changes auto (${Math.round((cfg.setup?.lengthChangeMin ?? 1) * 60)}s each)`} />
-        <Card title="Loading & QC buffer" value={`+${cfg.longJob?.bufferPct ?? 20}%`} sub="on every job" />
+        <Card title="Loading / tube" value={`${cfg.setup?.loadSecPerTube ?? 18} sec`} sub="explicit per tube loaded" />
+        <Card title="QC buffer" value={`+${cfg.longJob?.bufferPct ?? 20}%`} sub="on every job" />
       </div>
 
       <h2>Quote a job</h2>
@@ -253,8 +255,9 @@ function Costing({ jobs, cfg, mo }) {
           <div className="tr"><span>Avg sec/piece (history)</span><span>{spp.toFixed(1)} s</span><span /><span /><span /></div>
           <div className="tr"><span>Cutting time</span><span>{cutMin.toFixed(1)} min</span><span /><span /><span /></div>
           <div className="tr"><span>Setup</span><span>{setupMin} min</span><span /><span /><span /></div>
+          <div className="tr"><span>Loading ({fmt(tubes)} tube{tubes === 1 ? '' : 's'} × {cfg.setup?.loadSecPerTube ?? 18}s)</span><span>{loadingMin.toFixed(1)} min</span><span /><span /><span /></div>
           <div className="tr"><span>Standard time</span><span>{stdMin.toFixed(1)} min</span><span /><span /><span /></div>
-          {isLong && <div className="tr"><span>Loading &amp; QC +{cfg.longJob?.bufferPct ?? 20}%</span><span>{billMin.toFixed(1)} min</span><span /><span /><span /></div>}
+          {isLong && <div className="tr"><span>QC +{cfg.longJob?.bufferPct ?? 20}%</span><span>{billMin.toFixed(1)} min</span><span /><span /><span /></div>}
           <div className="tr th"><span>Quote (charge)</span><span style={{ color: '#34d399' }}>{rupee(quoteCharge)}</span><span /><span /><span /></div>
           <div className="tr"><span>Est. cost</span><span>{rupee(quoteCost)}</span><span /><span /><span /></div>
           <div className="tr"><span>Est. margin</span><span style={{ color: quoteCharge - quoteCost >= 0 ? '#34d399' : '#f87171' }}>{rupee(quoteCharge - quoteCost)}</span><span /><span /><span /></div>

@@ -38,7 +38,12 @@ export function monthlyCost(days, cfg = {}, jobs = null) {
     ? (lengthChanges / span) * 30 * lenMin
     : cuttingDaysPerMonth * (sc.lengthChangesPerDay ?? 0.7) * lenMin;
   const mSetup = mSizeSetup + mLengthSetup;
-  const mBill = mCut + mSetup || 1;
+  // Tube loading + feeding: explicit per-tube time (scales with tube COUNT, not cut time).
+  // Tubes ~= runs (each nest/run loads a tube). Sum of day-level runs over the cut-time span.
+  const loadMin = (sc.loadSecPerTube ?? 18) / 60;
+  const tubesInSpan = dd.reduce((a, d) => a + (d.runs || 0), 0);
+  const mLoading = (tubesInSpan / span) * 30 * loadMin;
+  const mBill = mCut + mSetup + mLoading || 1;
 
   const rate = cfg.electricityRate || 14;
   const totalKWh = dd.reduce((a, d) => a + (d.kWh || 0), 0);
@@ -49,22 +54,26 @@ export function monthlyCost(days, cfg = {}, jobs = null) {
     (f.operator || 0) + (f.maintenance || 0) + (f.rent || 0) + (f.consumables || 0) + (cfg.depreciationMonthly || 0);
   const totalMonthly = fixedExclElec + mElec;
 
-  return { mCut, mSetup, mSizeSetup, mLengthSetup, lengthChanges, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec, cuttingDaysPerMonth };
+  return { mCut, mSetup, mSizeSetup, mLengthSetup, mLoading, tubesInSpan, lengthChanges, mBill, costPerBillMin: totalMonthly / mBill, span, mElec, totalMonthly, fixedExclElec, cuttingDaysPerMonth };
 }
 
 // A single job quote. setupType: 'dimension' | 'length' | 'none'.
 // The loading & QC buffer (+bufferPct) applies whenever stdMin > thresholdMin (0 = all jobs).
-export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0 }) {
+export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0, piecesPerTube = 0 }) {
   const sc = cfg.setup || {};
   const charge = cfg.chargePerMin || 40;
   const cutMin = (qty * secPerPiece) / 60;
   const setupMin =
     setupType === 'dimension' ? (sc.dimensionChangeMin ?? 40) :
     setupType === 'length' ? (sc.lengthChangeMin ?? 0.33) : 0;
-  const stdMin = cutMin + setupMin;
+  // Explicit per-tube loading: tubes for this job from the size's historical pieces-per-tube.
+  const tubes = piecesPerTube > 0 ? Math.ceil(qty / piecesPerTube) : 0;
+  const loadingMin = tubes * ((sc.loadSecPerTube ?? 18) / 60);
+  const stdMin = cutMin + setupMin + loadingMin;
+  // Buffer is now QC-only (loading is explicit above) — still applied per cfg.longJob.
   const isBuffered = stdMin > (cfg.longJob?.thresholdMin ?? 0);
   const billMin = isBuffered ? stdMin * (1 + (cfg.longJob?.bufferPct ?? 20) / 100) : stdMin;
   const quoteCharge = billMin * charge;
   const quoteCost = billMin * costPerBillMin;
-  return { cutMin, setupMin, stdMin, isBuffered, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
+  return { cutMin, setupMin, loadingMin, tubes, stdMin, isBuffered, billMin, quoteCharge, quoteCost, margin: quoteCharge - quoteCost };
 }
