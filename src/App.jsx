@@ -17,6 +17,24 @@ function piecesByDay(jobs) {
 }
 
 /* ---------- small UI ---------- */
+// Beam power-gauge — utilization shown as a radial machine readout (the signature element).
+function Gauge({ pct = 0, target = 50 }) {
+  const r = 82, L = Math.PI * r
+  const frac = Math.max(0, Math.min(1, (pct || 0) / 100))
+  const th = Math.PI - Math.max(0, Math.min(1, target / 100)) * Math.PI
+  const x1 = 100 + (r - 11) * Math.cos(th), y1 = 100 - (r - 11) * Math.sin(th)
+  const x2 = 100 + (r + 7) * Math.cos(th), y2 = 100 - (r + 7) * Math.sin(th)
+  const col = (pct || 0) < target ? 'var(--heat)' : 'var(--accent)'
+  return (
+    <svg viewBox="0 0 200 118" className="gauge" role="img" aria-label={`Powered on ${Math.round(pct || 0)} percent, target ${target} percent`}>
+      <path d="M 18 100 A 82 82 0 0 1 182 100" className="gauge-track" />
+      <path d="M 18 100 A 82 82 0 0 1 182 100" className="gauge-val" style={{ stroke: col, color: col, strokeDasharray: `${frac * L} ${L}` }} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} className="gauge-target" />
+      <text x="100" y="90" className="gauge-num">{Math.round(pct || 0)}<tspan className="gauge-pct">%</tspan></text>
+      <text x="100" y="106" className="gauge-lbl">POWERED ON · TARGET {target}%</text>
+    </svg>
+  )
+}
 const Card = ({ title, value, sub, accent }) => (
   <div className="card"><div className="card-t">{title}</div><div className="card-v" style={accent ? { color: accent } : null}>{value}</div>{sub && <div className="card-s">{sub}</div>}</div>
 )
@@ -43,11 +61,7 @@ function Dashboard({ days, cfg, mo, meta }) {
       {headline.powerOnPct != null && (
         <div className="hero">
           <div className="hero-t">Utilization — your #1 profit lever</div>
-          <div className="hero-main">
-            <div className="hero-big" style={{ color: headline.powerOnPct < target ? '#f59e0b' : '#34d399' }}>{headline.powerOnPct}%</div>
-            <div className="hero-cap">powered on<br /><span>target {target}%</span></div>
-          </div>
-          <div className="hero-bar"><div className="hero-fill" style={{ width: `${Math.min(100, (headline.powerOnPct / target) * 100)}%`, background: headline.powerOnPct < target ? '#f59e0b' : '#34d399' }} /></div>
+          <Gauge pct={headline.powerOnPct} target={target} />
           <div className="hero-stats">
             <span>Idle <b>{idleH} h</b> (not cutting)</span>
             <span>Fixed cost <b>{rupee(fixedDaily)}/day</b> paid anyway</span>
