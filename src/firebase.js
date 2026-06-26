@@ -42,14 +42,37 @@ export async function isAllowed(user) {
 
 export const CARD = '250811133266'
 
+// ---- once-a-day read gate (data barely changes intraday; saves Firestore quota) ----
+const CORE_KEY = `laser_core_${CARD}`
+const today = () => new Date().toISOString().slice(0, 10)
+const _ls = { get: (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null') } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* full/private */ } } }
+
+// Refresh button -> clear the day stamps so the next load does a live read.
+export function forceRefresh() {
+  try {
+    const c = _ls.get(CORE_KEY); if (c) _ls.set(CORE_KEY, { ...c, day: '' })
+    const m = lsGet(META_KEY); if (m) lsSet(META_KEY, { ...m, lastReadDay: '' })
+  } catch { /* ignore */ }
+  _jobs = null
+}
+
 export async function loadCore() {
-  const [metaSnap, cfgSnap, daysSnap] = await Promise.all([
-    getDoc(doc(db, 'laser_meta', CARD)),
-    getDoc(doc(db, 'laser_config', 'settings')),
-    getDocs(query(collection(db, 'laser_days'), where('cardId', '==', CARD))),
-  ])
-  const days = daysSnap.docs.map((d) => d.data()).sort((a, b) => a.statDate - b.statDate)
-  return { meta: metaSnap.data() || {}, cfg: cfgSnap.data() || {}, days }
+  const cached = _ls.get(CORE_KEY)
+  if (cached && cached.day === today() && cached.core) return cached.core // already read today
+  try {
+    const [metaSnap, cfgSnap, daysSnap] = await Promise.all([
+      getDoc(doc(db, 'laser_meta', CARD)),
+      getDoc(doc(db, 'laser_config', 'settings')),
+      getDocs(query(collection(db, 'laser_days'), where('cardId', '==', CARD))),
+    ])
+    const days = daysSnap.docs.map((d) => d.data()).sort((a, b) => a.statDate - b.statDate)
+    const core = { meta: metaSnap.data() || {}, cfg: cfgSnap.data() || {}, days }
+    _ls.set(CORE_KEY, { day: today(), core })
+    return core
+  } catch (e) {
+    if (cached && cached.core) return cached.core // quota/offline -> serve last cache
+    throw e
+  }
 }
 
 export async function loadSizeMap() {
@@ -89,16 +112,20 @@ export async function loadJobs() {
   const meta = lsGet(META_KEY)
   const cache = lsGet(CACHE_KEY) || []
 
+  // once-a-day gate: if jobs were already read today, serve the cache with no Firestore read.
+  if (meta && meta.lastReadDay === today() && cache.length) { _jobs = cache.slice().sort(sortJobs); return _jobs }
+
   try {
     if (needFullRead(meta, now)) {
       const all = await fetchAllJobs()                 // full reconcile (first run / every 10 days)
       _jobs = all.sort(sortJobs)
       lsSet(CACHE_KEY, _jobs)
-      lsSet(META_KEY, { lastFullAt: now, count: _jobs.length })
+      lsSet(META_KEY, { lastFullAt: now, count: _jobs.length, lastReadDay: today() })
     } else {
       const recent = await fetchRecentJobs()           // light refresh: ~last 35 days only
       _jobs = mergeJobs(cache, recent).sort(sortJobs)
-      lsSet(CACHE_KEY, _jobs)                           // keep meta.lastFullAt unchanged
+      lsSet(CACHE_KEY, _jobs)
+      lsSet(META_KEY, { ...meta, lastReadDay: today() }) // keep lastFullAt; stamp today's read
     }
   } catch (e) {
     if (cache.length) { _jobs = cache.slice().sort(sortJobs); return _jobs } // offline/quota -> serve cache

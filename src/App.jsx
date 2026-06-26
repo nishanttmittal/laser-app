@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, isAllowed } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, isAllowed, forceRefresh } from './firebase'
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
@@ -511,6 +511,7 @@ export default function App() {
   const [err, setErr] = useState('')
   const [user, setUser] = useState(undefined) // undefined = checking, null = signed out
   const [allowed, setAllowed] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => onAuth(async (u) => { setUser(u || null); setAllowed(u ? await isAllowed(u) : false) }), [])
 
@@ -519,7 +520,9 @@ export default function App() {
     loadCore().then(setCore).catch((e) => setErr(e.message))
     loadJobs().then(setJobs).catch((e) => setErr(e.message))
     loadSizeMap().then(setSizeMap).catch(() => {})
-  }, [allowed])
+  }, [allowed, refreshKey])
+
+  const refresh = () => { forceRefresh(); setErr(''); setCore(null); setJobs(null); setRefreshKey((k) => k + 1) }
 
   const mappedJobs = useMemo(() => enrichJobs(jobs || [], sizeMap), [jobs, sizeMap])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
@@ -543,7 +546,8 @@ export default function App() {
     <div className="app">
       <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
         {!ready && <span className="sync">loading runs…</span>}
-        <button className="signout" onClick={signOutUser} title="Sign out">Sign out</button>
+        <button className="signout" onClick={refresh} title="Refresh (live read)" style={{ marginLeft: 'auto' }}>↻ Refresh</button>
+        <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 8 }}>Sign out</button>
       </header>
       {showPeriod && (
         <div className="periodbar">
