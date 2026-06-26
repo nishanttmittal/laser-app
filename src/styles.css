@@ -197,6 +197,12 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .quote label.chk { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--mut); font-weight: 500; }
 .quote label.chk input { width: auto; flex: 0 0 auto; transform: scale(1.2); accent-color: var(--accent); }
 
+/* ---- reports period + pdf ---- */
+.rangerow { display: flex; gap: 11px; }
+.rangerow label { flex: 1; }
+.pdfrow { display: flex; gap: 10px; margin-bottom: 10px; }
+.pdfrow .btn { flex: 1; }
+
 /* ---- job catalog ---- */
 .catimg { max-width: 160px; border-radius: 10px; border: 1px solid var(--line); margin-top: 2px; }
 .catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 11px; margin-top: 12px; }

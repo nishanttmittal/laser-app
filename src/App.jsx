@@ -29,6 +29,8 @@ import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
 import { buildCatalogIndex, tagJobs, sizeCatalog } from './lib/catalog.js'
 import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
+import { periodReport } from './lib/reportData.js'
+import { buildPeriodPDF } from './lib/pdf.js'
 
 /* ---------- helpers ---------- */
 const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
@@ -324,34 +326,76 @@ function Costing({ jobs, cfg, mo }) {
   )
 }
 
-function Reports({ days, cfg }) {
+function Reports({ days, jobs, cfg, mo }) {
   const charge = cfg.chargePerMin || 40
   const rate = cfg.electricityRate || 14
-  const months = monthRollup(days)
+  const iso = (d) => d.toISOString().slice(0, 10)
+  const now = new Date()
+  const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1))) // 1st of this month
+  const [to, setTo] = useState(() => iso(now))
+  const [busy, setBusy] = useState('')
+  const [msg, setMsg] = useState('')
+  const fromN = +from.replace(/-/g, ''), toN = +to.replace(/-/g, '')
+  const rangeDays = (days || []).filter((d) => { const x = +d.statDate; return x >= fromN && x <= toN })
+  const months = monthRollup(rangeDays)
+
   const csv = () => {
     const head = 'Date,Laser-on h,Cut h,Cut length m,Pierces,Pieces,Runs,Charge(cutting)\n'
     const body = days.map((d) => [prettyYmd(d.statDate), d.laserOnH || 0, d.cutTimeH || 0, d.cutLengthM || 0, d.pierceCount || 0, d.pieces || 0, d.runs || 0, Math.round(((d.cutTime || 0) / 60) * charge)].join(',')).join('\n')
     const blob = new Blob([head + body], { type: 'text/csv' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unico-laser-days.csv'; a.click()
   }
+
+  const makePDF = async (detailed) => {
+    if (fromN > toN) { setMsg('“From” date is after “To”.'); return }
+    setBusy(detailed ? 'detailed' : 'summary'); setMsg('')
+    try {
+      const report = periodReport(days, jobs, cfg, mo, { from: fromN, to: toN })
+      const { blob, filename } = await buildPeriodPDF(report, { detailed })
+      const file = new File([blob], filename, { type: 'application/pdf' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename })   // iPhone: share sheet -> WhatsApp
+      } else {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 5000)
+      }
+    } catch (e) { if (e?.name !== 'AbortError') setMsg('Could not make PDF: ' + e.message) }
+    finally { setBusy('') }
+  }
+
   return (
     <div>
+      <h2>Reports</h2>
+      <div className="quote">
+        <div className="rangerow">
+          <label>From<input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
+          <label>To<input type="date" value={to} max={iso(now)} onChange={(e) => setTo(e.target.value)} /></label>
+        </div>
+      </div>
+      <div className="pdfrow">
+        <button className="btn wa" disabled={!!busy} onClick={() => makePDF(false)}>{busy === 'summary' ? 'Making…' : '⬇ PDF — Summary'}</button>
+        <button className="btn" disabled={!!busy} onClick={() => makePDF(true)}>{busy === 'detailed' ? 'Making…' : '⬇ PDF — Detailed'}</button>
+      </div>
+      <div className="note">PDF covers the dates above and downloads to your phone — tap the share sheet to send it on WhatsApp. <b>Summary</b> = 1 page; <b>Detailed</b> adds day-by-day + top parts.</div>
+      {msg && <div className="note err">{msg}</div>}
+
       <h2>Month-wise summary</h2>
       <div className="tbl">
         <div className="tr th sz4"><span>Month</span><span>Pieces</span><span>Cut h</span><span>Electricity ₹</span></div>
-        {months.map((m) => (
+        {months.length ? months.map((m) => (
           <div className="tr sz4" key={m.ym}>
             <span>{m.ym}</span><span>{fmt(m.pieces)}</span><span>{m.cutH.toFixed(1)}</span>
             <span>{rupee(kWhCost(m.kWh, rate))}</span>
           </div>
-        ))}
+        )) : <div className="note">No production in this range.</div>}
       </div>
       <h2>Day-wise production</h2>
-      <div className="note">A full <b>end-of-day PDF</b> is auto-generated daily and sent to your Telegram (WhatsApp once set up). The complete history is also saved on your laptop at <code>Desktop\UNICO-Laser-Reports\</code>.</div>
+      <div className="note">A full <b>end-of-day PDF</b> is auto-generated nightly and sent to your Telegram (WhatsApp once set up). The complete history is also saved on your laptop at <code>Desktop\UNICO-Laser-Reports\</code>.</div>
       <button className="btn" onClick={csv}>⬇ Download all days (CSV)</button>
       <div className="tbl">
         <div className="tr th wide"><span>Date</span><span>Pieces</span><span>Runs</span><span>Cut h</span><span>Cut m</span><span>Charge</span></div>
-        {[...days].reverse().map((d) => (
+        {[...rangeDays].reverse().map((d) => (
           <div className="tr wide" key={d.statDate}>
             <span>{prettyYmd(d.statDate)}</span><span style={{ color: '#34d399' }}>{fmt(d.pieces || 0)}</span><span>{fmt(d.runs || 0)}</span>
             <span>{(d.cutTimeH || 0).toFixed(1)}</span><span>{fmt(d.cutLengthM || 0)}</span><span>{rupee(((d.cutTime || 0) / 60) * charge)}</span>
@@ -372,7 +416,7 @@ function Machine({ meta, days, jobs }) {
     <div>
       <h2>Machine</h2>
       <div className="tbl">{rows.map(([k, v]) => <div className="tr" key={k}><span>{k}</span><span>{v || '-'}</span><span /><span /><span /></div>)}</div>
-      <div className="note">Data auto-syncs 4×/day from BOCHU IoT and is archived permanently on your laptop (kept beyond BOCHU's 3-month limit).</div>
+      <div className="note">Data auto-syncs once nightly from BOCHU IoT (and on demand via the desktop “Refresh Laser Now” shortcut), and is archived permanently on your laptop (kept beyond BOCHU's 3-month limit).</div>
     </div>
   )
 }
@@ -833,7 +877,7 @@ export default function App() {
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Reports' && <Reports days={days} cfg={cfg} />}
+        {tab === 'Reports' && (ready ? <Reports days={days} jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} /> : <Loading />)}
       </main>
       <nav className="tabs">
