@@ -684,58 +684,77 @@ function Users() {
 }
 // Owner-editable cost rates. Writes the raw fields onto laser_config/settings; the app's
 // costing recomputes from them, so a saved change flows into Costing + Dashboard on refresh.
-function Rates({ cfg, onSaved }) {
+// Field label + [min, max] sanity bound. A value outside the bound is rejected (a typo like
+// rent=3000000 or charge=4 would otherwise silently corrupt every quote).
+const RATE_FIELDS = [
+  ['chargePerMin', 'Charge ₹/min (price)', [1, 5000]], ['operator', 'Operator salary ₹/mo', [0, 5000000]],
+  ['rent', 'Rent ₹/mo', [0, 5000000]], ['maintenance', 'Maintenance ₹/mo', [0, 5000000]],
+  ['consumables', 'Consumables ₹/mo', [0, 5000000]], ['depreciationMonthly', 'Depreciation ₹/mo', [0, 5000000]],
+  ['electricityRate', 'Electricity ₹/unit', [1, 200]], ['sizeChangesPerDay', 'Size changes / cutting day', [0, 50]],
+  ['dimensionChangeMin', 'Size-change setup (min)', [0, 240]], ['loadSecPerTube', 'Loading sec / tube', [0, 600]],
+  ['qcPct', 'QC buffer %', [0, 100]], ['rejectionPct', 'Reject yield %', [0, 50]],
+  ['programmingMin', 'New-part programming (min)', [0, 600]], ['minOrderCharge', 'Minimum order ₹', [0, 1000000]],
+  ['utilTargetPct', 'Utilization target %', [0, 100]],
+]
+function Rates({ cfg, onSaved, userEmail }) {
   const f0 = cfg.monthlyFixed || {}, s0 = cfg.setup || {}
-  const [v, setV] = useState({
+  const OLD = {
     chargePerMin: cfg.chargePerMin ?? 40, electricityRate: cfg.electricityRate ?? 14,
     operator: f0.operator ?? 0, rent: f0.rent ?? 0, maintenance: f0.maintenance ?? 0, consumables: f0.consumables ?? 0,
     depreciationMonthly: cfg.depreciationMonthly ?? 0,
     sizeChangesPerDay: s0.sizeChangesPerDay ?? 5.5, dimensionChangeMin: s0.dimensionChangeMin ?? 40, loadSecPerTube: s0.loadSecPerTube ?? 18,
     qcPct: cfg.qcPct ?? 12, rejectionPct: cfg.rejectionPct ?? 2, programmingMin: cfg.programmingMin ?? 25,
     minOrderCharge: cfg.minOrderCharge ?? 500, utilTargetPct: cfg.utilTargetPct ?? 50,
-  })
+  }
+  const [v, setV] = useState({ ...OLD })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const set = (k) => (e) => setV((p) => ({ ...p, [k]: e.target.value }))
-  const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : 0 }
   const save = async () => {
-    setBusy(true); setMsg('')
+    setMsg('')
+    // 1) validate: every field must be a finite number inside its bound
+    const bad = []
+    for (const [k, label, [lo, hi]] of RATE_FIELDS) {
+      const n = Number(v[k])
+      if (v[k] === '' || !Number.isFinite(n) || n < lo || n > hi) bad.push(`${label} must be ${lo}–${hi}`)
+    }
+    if (bad.length) { setMsg('Fix: ' + bad.join('; ')); return }
+    // 2) build old->new diff; nothing to do if unchanged
+    const changes = RATE_FIELDS
+      .filter(([k]) => Number(v[k]) !== Number(OLD[k]))
+      .map(([k, label]) => ({ field: label, old: Number(OLD[k]), new: Number(v[k]) }))
+    if (!changes.length) { setMsg('No changes to save.'); return }
+    // 3) confirm old->new before touching the live pricing basis
+    if (!window.confirm('Save these rate changes?\n\n' + changes.map((c) => `${c.field}: ${c.old} → ${c.new}`).join('\n'))) return
+    const n = (k) => Number(v[k])
+    setBusy(true)
     try {
       await saveConfig({
-        chargePerMin: num(v.chargePerMin), electricityRate: num(v.electricityRate),
-        monthlyFixed: { ...f0, operator: num(v.operator), rent: num(v.rent), maintenance: num(v.maintenance), consumables: num(v.consumables) },
-        depreciationMonthly: num(v.depreciationMonthly),
-        setup: { ...s0, sizeChangesPerDay: num(v.sizeChangesPerDay), dimensionChangeMin: num(v.dimensionChangeMin), loadSecPerTube: num(v.loadSecPerTube) },
-        qcPct: num(v.qcPct), rejectionPct: num(v.rejectionPct), programmingMin: num(v.programmingMin),
-        minOrderCharge: num(v.minOrderCharge), utilTargetPct: num(v.utilTargetPct),
-      })
+        chargePerMin: n('chargePerMin'), electricityRate: n('electricityRate'),
+        monthlyFixed: { ...f0, operator: n('operator'), rent: n('rent'), maintenance: n('maintenance'), consumables: n('consumables') },
+        depreciationMonthly: n('depreciationMonthly'),
+        setup: { ...s0, sizeChangesPerDay: n('sizeChangesPerDay'), dimensionChangeMin: n('dimensionChangeMin'), loadSecPerTube: n('loadSecPerTube') },
+        qcPct: n('qcPct'), rejectionPct: n('rejectionPct'), programmingMin: n('programmingMin'),
+        minOrderCharge: n('minOrderCharge'), utilTargetPct: n('utilTargetPct'),
+      }, { by: userEmail || '', changes })
       setMsg('✓ Saved — refreshing…'); onSaved && onSaved()
     } catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
-  const F = [
-    ['chargePerMin', 'Charge ₹/min (price)'], ['operator', 'Operator salary ₹/mo'], ['rent', 'Rent ₹/mo'],
-    ['maintenance', 'Maintenance ₹/mo'], ['consumables', 'Consumables ₹/mo'], ['depreciationMonthly', 'Depreciation ₹/mo'],
-    ['electricityRate', 'Electricity ₹/unit'], ['sizeChangesPerDay', 'Size changes / cutting day'],
-    ['dimensionChangeMin', 'Size-change setup (min)'], ['loadSecPerTube', 'Loading sec / tube'],
-    ['qcPct', 'QC buffer %'], ['rejectionPct', 'Reject yield %'], ['programmingMin', 'New-part programming (min)'],
-    ['minOrderCharge', 'Minimum order ₹'], ['utilTargetPct', 'Utilization target %'],
-  ]
   return (
     <div>
       <h2>Cost rates</h2>
-      <div className="note">Change a rate and Save — Costing &amp; Dashboard recompute on the next refresh. These are the live rates the app quotes with.</div>
+      <div className="note">Change a rate and Save — Costing &amp; Dashboard recompute on the next refresh. You'll be asked to confirm each change; every edit is logged.</div>
       <div className="quote">
-        {F.map(([k, label]) => <label key={k}>{label}<input type="number" inputMode="decimal" value={v[k]} onChange={set(k)} /></label>)}
+        {RATE_FIELDS.map(([k, label]) => <label key={k}>{label}<input type="number" inputMode="decimal" value={v[k]} onChange={set(k)} /></label>)}
       </div>
       <button className="btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save rates'}</button>
       {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
-      <div className="note">The nightly Telegram report still uses the factory-set defaults — ask to wire it to these rates if you want them identical.</div>
     </div>
   )
 }
-function Admin({ meta, days, jobs, cfg, onSaved, onCatalogSaved, onRatesSaved }) {
-  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} /><Sep /><MeterEntry /><Sep /><JobCatalog onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+function Admin({ meta, days, jobs, cfg, userEmail, onSaved, onCatalogSaved, onRatesSaved }) {
+  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} userEmail={userEmail} /><Sep /><MeterEntry /><Sep /><JobCatalog onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
 }
 
 /* ---------- shell ---------- */
@@ -930,7 +949,7 @@ export default function App() {
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Reports' && (ready ? <Reports days={days} jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} cfg={cfg} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} onRatesSaved={refresh} /> : <Loading />)}
+        {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} cfg={cfg} userEmail={user.email} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} onRatesSaved={refresh} /> : <Loading />)}
       </main>
       <nav className="tabs">
         {TABS.map((t) => <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}

@@ -138,8 +138,17 @@ export async function loadCore() {
 // ---- Cost rates (owner only) ----
 // Writes the edited rate fields onto laser_config/settings (merge — never clobbers fields the
 // editor doesn't touch). The app's costing recomputes from these raw fields on next load.
-export async function saveConfig(patch) {
-  await setDoc(doc(db, 'laser_config', 'settings'), { ...patch, ratesUpdatedAt: Date.now() }, { merge: true })
+// `meta.by` + `meta.changes` (old->new) are stamped on the doc and appended to an audit log
+// (laser_config_log) so a fat-finger on ₹/min or rent is traceable. Log is best-effort.
+export async function saveConfig(patch, meta = {}) {
+  await setDoc(doc(db, 'laser_config', 'settings'),
+    { ...patch, ratesUpdatedAt: Date.now(), ratesUpdatedBy: meta.by || '' }, { merge: true })
+  if (meta.changes && meta.changes.length) {
+    try {
+      await setDoc(doc(db, 'laser_config_log', String(Date.now())),
+        { at: Date.now(), by: meta.by || '', changes: meta.changes })
+    } catch { /* audit log is best-effort — never block a valid save */ }
+  }
 }
 
 export async function loadSizeMap() {
