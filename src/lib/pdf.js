@@ -93,7 +93,7 @@ export async function buildPeriodPDF(report, { detailed = false } = {}) {
     const w = A4.w - 2 * M;
     table('By size — margin per piece',
       ['Item', 'Pieces', 'Rs/pc', 'Margin/pc'],
-      report.bySize.map((s) => [s.name || s.sizeKey, fmt(s.pieces), money(s.chargePerPc), money(s.marginPerPc)]),
+      report.bySize.map((s) => [s.name ? `${s.sizeKey} · ${s.name}` : s.sizeKey, fmt(s.pieces), money(s.chargePerPc), money(s.marginPerPc)]),
       [w * 0.46, w * 0.18, w * 0.18, w * 0.18],
       ['left', 'right', 'right', 'right']);
   }

@@ -223,7 +223,7 @@ function BySize({ jobs, cfg, mo }) {
               <span className={'szcell' + (s.hasSize ? '' : ' isname')}>
                 {cat && cat.photo && <img className="szthumb" src={cat.photo} alt="" />}
                 {!cat && <i className={'dot' + (s.hasSize ? '' : ' warn')} />}
-                {cat ? cat.name : s.sizeKey}
+                {s.sizeKey}{cat && cat.name ? <span style={{ opacity: 0.7 }}> · {cat.name}</span> : ''}
               </span>
               <span>{fmt(s.pieces)}</span>
               <span>{'₹' + chgPc.toFixed(2)}</span>
