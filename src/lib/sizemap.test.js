@@ -76,3 +76,21 @@ test('groupBySize: per-piece rate ignores aborted / 0-piece runs (fix #2)', () =
   assert.equal(s.goodPieces, 10);
   assert.equal(s.secPerPiece, 10);     // 100/10 — the 500+60 aborted/0-piece secs excluded (was 66)
 });
+
+test('groupBySize carries the catalog name (single name -> set; mixed -> null)', () => {
+  const single = groupBySize([
+    { sizeKey: '30x20 t1', hasSize: true, partAmount: 5, timeTaken: 50, catName: 'Varun chair leg' },
+    { sizeKey: '30x20 t1', hasSize: true, partAmount: 5, timeTaken: 50, catName: 'Varun chair leg' },
+  ]).find((r) => r.sizeKey === '30x20 t1');
+  assert.equal(single.name, 'Varun chair leg');
+
+  const mixed = groupBySize([
+    { sizeKey: '40x40 t2', hasSize: true, partAmount: 5, timeTaken: 50, catName: 'Leg A' },
+    { sizeKey: '40x40 t2', hasSize: true, partAmount: 5, timeTaken: 50, catName: 'Leg B' },
+  ]).find((r) => r.sizeKey === '40x40 t2');
+  assert.equal(mixed.name, null);      // mixed names -> fall back to size code
+
+  const none = groupBySize([{ sizeKey: 'R20 t1', hasSize: true, partAmount: 5, timeTaken: 50 }])
+    .find((r) => r.sizeKey === 'R20 t1');
+  assert.equal(none.name, null);       // no catalog tag -> null
+});

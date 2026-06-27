@@ -135,6 +135,13 @@ export async function loadCore() {
   }
 }
 
+// ---- Cost rates (owner only) ----
+// Writes the edited rate fields onto laser_config/settings (merge — never clobbers fields the
+// editor doesn't touch). The app's costing recomputes from these raw fields on next load.
+export async function saveConfig(patch) {
+  await setDoc(doc(db, 'laser_config', 'settings'), { ...patch, ratesUpdatedAt: Date.now() }, { merge: true })
+}
+
 export async function loadSizeMap() {
   const snap = await getDocs(query(collection(db, 'laser_size_map'), where('cardId', '==', CARD)))
   const m = {}

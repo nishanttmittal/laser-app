@@ -43,20 +43,31 @@ export function enrichJobs(jobs, map) {
 
 export function groupBySize(jobs) {
   const m = {};
-  const mk = (sizeKey, hasSize, extra) => ({ sizeKey, hasSize, runs: 0, pieces: 0, sec: 0, goodSec: 0, goodPieces: 0, ...extra });
+  const mk = (sizeKey, hasSize, extra) => ({ sizeKey, hasSize, runs: 0, pieces: 0, sec: 0, goodSec: 0, goodPieces: 0, _cn: undefined, _mix: false, ...extra });
   const UNL = mk('Unlabelled', false, { unlabelled: true });
   for (const j of jobs || []) {
     const bucket = j.hasSize ? (m[j.sizeKey] = m[j.sizeKey] || mk(j.sizeKey, true)) : UNL;
     bucket.runs++;
     bucket.pieces += j.partAmount || 0;
     bucket.sec += j.timeTaken || 0;
+    // Catalog name (from tagJobs): carry the friendly name onto the size row when every
+    // tagged run in the group shares ONE name; clear it (null) if names are mixed. Lets the
+    // By-size screen AND the period PDF show "Varun chair leg" instead of a size code.
+    if (j.catName) {
+      if (bucket._cn === undefined) bucket._cn = j.catName;
+      else if (bucket._cn !== j.catName) bucket._mix = true;
+    }
     // "good" = a run that actually produced pieces and didn't abort. Only these feed the
     // per-piece rate, so aborted / 0-piece runs can't inflate (or zero out) the quote speed.
     if ((j.partAmount || 0) > 0 && !j.aborted) { bucket.goodSec += j.timeTaken || 0; bucket.goodPieces += j.partAmount || 0; }
   }
   const rows = Object.values(m).sort((a, b) => b.pieces - a.pieces);
   if (UNL.runs) rows.push(UNL);
-  for (const r of rows) r.secPerPiece = r.goodPieces ? r.goodSec / r.goodPieces : 0;
+  for (const r of rows) {
+    r.secPerPiece = r.goodPieces ? r.goodSec / r.goodPieces : 0;
+    r.name = (!r._mix && r._cn) ? r._cn : null;
+    delete r._cn; delete r._mix;
+  }
   return rows;
 }
 
