@@ -129,34 +129,79 @@ export function whatIf(current, cfg = {}, { cuttingHoursPerDay = 0, workingDaysP
   return { cuttingHoursPerDay, workingDaysPerMonth, mCut, mBill, mElec, totalMonthly, costPerBillMin, marginPerMin: charge - costPerBillMin, revenue, monthlyMargin: revenue - totalMonthly };
 }
 
-// ACTUAL margin per month, from real production + real per-day electricity (laser_days.kWh).
-// Revenue = billable minutes (cut + setup + loading + QC) at the standard ₹/min. Cost =
-// full monthly fixed + actual electricity. Material is excluded (billed separately).
-export function monthlyMargins(days, cfg = {}) {
-  const charge = cfg.chargePerMin || 40;
-  const rate = cfg.electricityRate || 14;
-  const sc = cfg.setup || {};
-  const qcPct = (cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12) / 100;
-  const fixed = fixedTotal(cfg);
+// ---- Effective-dated rates ----
+// Rates change over time. A job/day must be valued at the rate that was IN FORCE THEN, so a
+// rate change today never re-prices already-supplied work. `history` = laser_rate_history docs
+// (each a full rate snapshot with effectiveFrom = YYYYMMDD). Returns snapshots oldest-first.
+export function buildRateSnaps(history = [], cfg = {}) {
+  const snaps = (history || [])
+    .filter((h) => h && h.effectiveFrom != null)
+    .map((h) => ({ from: Number(h.effectiveFrom), rates: h }))
+    .sort((a, b) => a.from - b.from);
+  if (!snaps.length) snaps.push({ from: 0, rates: cfg }); // no history -> current rate for all time
+  return snaps;
+}
+// The rate set in force on a given day (YYYYMMDD): the latest snapshot whose effectiveFrom <= day.
+// Used for the WORK-related rates (price ₹/min, electricity, setup, QC) — exact to the day.
+export function rateOn(ymd, snaps) {
+  let r = snaps[0].rates;
+  for (const s of snaps) { if (s.from <= Number(ymd)) r = s.rates; else break; }
+  return r;
+}
+// Fixed monthly costs (rent/salary/depreciation) change from the 1st of the month AFTER the edit
+// (owner rule). So month `ym` ('YYYY-MM') uses the latest snapshot whose effectiveFrom is in an
+// EARLIER month — a change made during `ym` only counts from the next month.
+export function fixedRateForMonth(ym, snaps) {
+  let r = snaps[0].rates;
+  for (const s of snaps) {
+    const sym = `${String(s.from).padStart(8, '0').slice(0, 4)}-${String(s.from).padStart(8, '0').slice(4, 6)}`;
+    if (sym < ym) r = s.rates; else break;
+  }
+  return r;
+}
+
+// ACTUAL margin per month, from real production + real per-day electricity (laser_days.kWh),
+// each day valued at the rate IN FORCE ON THAT DAY (effective-dated — old days keep old rates).
+// Revenue = billable minutes (cut + setup + loading + QC) at that day's ₹/min. Cost = monthly
+// fixed (at the month's latest rate) + actual electricity. Material excluded (billed separately).
+// Returns { months:[...], total:{...} } — `total` is the cumulative blend across all history.
+export function monthlyMargins(days, cfg = {}, history = []) {
+  const snaps = buildRateSnaps(history, cfg);
   const months = {};
   for (const d of days || []) {
     if (!d.cutTime) continue;
+    const ymd = Number(d.statDate);
+    const r = rateOn(ymd, snaps);
+    const charge = r.chargePerMin || 40;
+    const erate = r.electricityRate || 14;
+    const sc = r.setup || {};
+    const qcPct = (r.qcPct ?? r.longJob?.bufferPct ?? 12) / 100;
+    const cutMin = (d.cutTime || 0) / 60;
+    const setupMin = (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40); // one cutting day
+    const loadingMin = (d.runs || 0) * ((sc.loadSecPerTube ?? 18) / 60);
+    const billMin = cutMin + setupMin + loadingMin + cutMin * qcPct;
     const ym = `${String(d.statDate).slice(0, 4)}-${String(d.statDate).slice(4, 6)}`;
-    const m = (months[ym] = months[ym] || { ym, cutMin: 0, kWh: 0, cuttingDays: 0, tubes: 0 });
-    m.cutMin += (d.cutTime || 0) / 60;
-    m.kWh += d.kWh || 0;
+    const m = (months[ym] = months[ym] || { ym, cutMin: 0, billMin: 0, revenue: 0, elecCost: 0, cuttingDays: 0 });
+    m.cutMin += cutMin;
+    m.billMin += billMin;
+    m.revenue += billMin * charge;
+    m.elecCost += (d.kWh || 0) * erate;
     m.cuttingDays += 1;
-    m.tubes += d.runs || 0;
   }
-  return Object.values(months).map((m) => {
-    const setupMin = m.cuttingDays * (sc.sizeChangesPerDay ?? 5.5) * (sc.dimensionChangeMin ?? 40); // size (length negligible)
-    const loadingMin = m.tubes * ((sc.loadSecPerTube ?? 18) / 60);
-    const qcMin = m.cutMin * qcPct;
-    const billMin = m.cutMin + setupMin + loadingMin + qcMin;
-    const revenue = Math.round(billMin * charge);
-    const elecCost = Math.round(m.kWh * rate);
+  const list = Object.values(months).map((m) => {
+    const fixed = fixedTotal(fixedRateForMonth(m.ym, snaps)); // fixed costs change from next month
+
+    const elecCost = Math.round(m.elecCost);
+    const revenue = Math.round(m.revenue);
     const cost = fixed + elecCost;
     const margin = revenue - cost;
-    return { ym: m.ym, cutH: +(m.cutMin / 60).toFixed(1), cuttingDays: m.cuttingDays, billMin: Math.round(billMin), revenue, elecCost, fixed, cost, margin, marginPct: revenue ? +(margin / revenue * 100).toFixed(0) : 0 };
+    return { ym: m.ym, cutH: +(m.cutMin / 60).toFixed(1), cuttingDays: m.cuttingDays, billMin: Math.round(m.billMin), revenue, elecCost, fixed, cost, margin, marginPct: revenue ? +(margin / revenue * 100).toFixed(0) : 0 };
   }).sort((a, b) => a.ym.localeCompare(b.ym));
+  // Cumulative blended total across all history (each month already at its own rate).
+  const total = list.reduce((t, m) => ({
+    revenue: t.revenue + m.revenue, elecCost: t.elecCost + m.elecCost, fixed: t.fixed + m.fixed,
+    cost: t.cost + m.cost, margin: t.margin + m.margin, cutH: +(t.cutH + m.cutH).toFixed(1),
+  }), { revenue: 0, elecCost: 0, fixed: 0, cost: 0, margin: 0, cutH: 0 });
+  total.marginPct = total.revenue ? Math.round(total.margin / total.revenue * 100) : 0;
+  return { months: list, total };
 }

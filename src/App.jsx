@@ -552,8 +552,8 @@ function Utilization({ days, meta }) {
   )
 }
 
-function Margin({ days, cfg, mo }) {
-  const months = monthlyMargins(days, cfg)
+function Margin({ days, cfg, mo, rateHistory }) {
+  const { months, total } = monthlyMargins(days, cfg, rateHistory)
   const [hrs, setHrs] = useState(8)
   const [wdays, setWdays] = useState(26)
   const charge = cfg.chargePerMin || 40
@@ -561,7 +561,7 @@ function Margin({ days, cfg, mo }) {
   return (
     <div>
       <h2>Actual margin — per month</h2>
-      <div className="note">Revenue = production billed at {rupee(charge)}/min (cutting + setup + loading + QC). Cost = full monthly fixed + <b>actual electricity</b> (from the daily meter / calibrated kWh). Material is billed separately, so it's excluded here.</div>
+      <div className="note">Each month uses the <b>rates in force then</b> — changing a rate never re-costs old work. Price (₹/min) &amp; electricity apply <b>from the exact day</b> you change them; rent/salary changes apply <b>from the next month</b>. Revenue = production billed at the period's ₹/min (cutting + setup + loading + QC); cost = monthly fixed + <b>actual electricity</b>. Material billed separately.</div>
       <div className="tbl">
         <div className="tr th wide"><span>Month</span><span>Cut h</span><span>Revenue</span><span>Elec</span><span>Margin</span></div>
         {months.map((m) => (
@@ -572,8 +572,16 @@ function Margin({ days, cfg, mo }) {
             <span style={{ color: m.margin >= 0 ? '#34d399' : '#f87171' }}>{rupee(m.margin)} · {m.marginPct}%</span>
           </div>
         ))}
+        {months.length > 0 && (
+          <div className="tr wide" style={{ fontWeight: 700, borderTop: '2px solid #2dd4ee44' }}>
+            <span>Total</span><span>{total.cutH}</span>
+            <span style={{ color: '#34d399' }}>{rupee(total.revenue)}</span>
+            <span>{rupee(total.elecCost)}</span>
+            <span style={{ color: total.margin >= 0 ? '#34d399' : '#f87171' }}>{rupee(total.margin)} · {total.marginPct}%</span>
+          </div>
+        )}
       </div>
-      <div className="note">Fixed cost is <b>{rupee(months[0]?.fixed || mo.fixedExclElec)}/month</b> regardless of output — months below that on revenue run at a loss. That's the utilization story in rupees.</div>
+      <div className="note">Cumulative <b>effective</b> revenue {rupee(total.revenue)} and margin {rupee(total.margin)} — the correct blend of every month at its own rate (not everything re-priced at today's rate).</div>
 
       <h2>What-if — run the machine longer</h2>
       <div className="quote">
@@ -646,8 +654,8 @@ function WeightCalc({ cfg }) {
     </div>
   )
 }
-function CostingTab({ jobs, days, cfg, mo }) {
-  return (<div><Costing jobs={jobs} cfg={cfg} mo={mo} /><Sep /><WeightCalc cfg={cfg} /><Sep /><Margin days={days} cfg={cfg} mo={mo} /></div>)
+function CostingTab({ jobs, days, cfg, mo, rateHistory }) {
+  return (<div><Costing jobs={jobs} cfg={cfg} mo={mo} /><Sep /><WeightCalc cfg={cfg} /><Sep /><Margin days={days} cfg={cfg} mo={mo} rateHistory={rateHistory} /></div>)
 }
 function Users() {
   const [list, setList] = useState(null)

@@ -159,7 +159,7 @@ test('monthlyMargins: revenue, actual electricity, fixed -> margin per month', (
     { statDate: 20260615, cutTime: 6000, kWh: 100, runs: 10 },
     { statDate: 20260710, cutTime: 3000, kWh: 50, runs: 5 },   // different month
   ];
-  const rows = monthlyMargins(ds, cfg);
+  const { months: rows } = monthlyMargins(ds, cfg);
   assert.equal(rows.length, 2);
   const jun = rows.find((r) => r.ym === '2026-06');
   // 200 cut-min, 2 cutting-days, 20 tubes, 200 kWh
@@ -168,6 +168,41 @@ test('monthlyMargins: revenue, actual electricity, fixed -> margin per month', (
   assert.equal(jun.revenue, 630 * 40);
   assert.equal(jun.elecCost, 200 * 14);
   assert.equal(jun.margin, jun.revenue - (jun.fixed + jun.elecCost));
+});
+
+test('monthlyMargins: effective-dated rates — old days keep the OLD price, new days the NEW', () => {
+  const days = [
+    { statDate: 20260610, cutTime: 6000, kWh: 0, runs: 0 }, // 100 cut-min, BEFORE the change
+    { statDate: 20260620, cutTime: 6000, kWh: 0, runs: 0 }, // 100 cut-min, ON/AFTER the change
+  ];
+  // No setup/loading/qc noise: rates with everything 0 except the price, so revenue = cutMin × ₹/min.
+  const flat = { monthlyFixed: {}, depreciationMonthly: 0, electricityRate: 14,
+    setup: { sizeChangesPerDay: 0, dimensionChangeMin: 0, loadSecPerTube: 0 }, qcPct: 0 };
+  const history = [
+    { effectiveFrom: 20000101, chargePerMin: 40, ...flat }, // baseline ₹40
+    { effectiveFrom: 20260615, chargePerMin: 50, ...flat }, // raised to ₹50 on the 15th
+  ];
+  const { months, total } = monthlyMargins(days, { chargePerMin: 50, ...flat }, history);
+  const jun = months.find((m) => m.ym === '2026-06');
+  // 10th valued at ₹40 (100×40=4000), 20th at ₹50 (100×50=5000) -> blended revenue 9000
+  assert.equal(jun.revenue, 9000);
+  assert.equal(total.revenue, 9000); // cumulative is the correct blend, not 200×50=10000
+});
+
+test('monthlyMargins: RENT change takes effect from the NEXT month (owner rule)', () => {
+  const flat = { chargePerMin: 40, electricityRate: 14,
+    setup: { sizeChangesPerDay: 0, dimensionChangeMin: 0, loadSecPerTube: 0 }, qcPct: 0 };
+  const days = [
+    { statDate: 20260520, cutTime: 6000, kWh: 0, runs: 0 }, // May — month of the change
+    { statDate: 20260620, cutTime: 6000, kWh: 0, runs: 0 }, // June — month after
+  ];
+  const history = [
+    { effectiveFrom: 20000101, monthlyFixed: { rent: 30000 }, depreciationMonthly: 0, ...flat },
+    { effectiveFrom: 20260515, monthlyFixed: { rent: 50000 }, depreciationMonthly: 0, ...flat }, // rent 30k -> 50k mid-May
+  ];
+  const { months } = monthlyMargins(days, { monthlyFixed: { rent: 50000 }, depreciationMonthly: 0, ...flat }, history);
+  assert.equal(months.find((m) => m.ym === '2026-05').fixed, 30000); // May (the change month) keeps OLD rent
+  assert.equal(months.find((m) => m.ym === '2026-06').fixed, 50000); // June (next month) uses NEW rent
 });
 
 test('quoteJob: reject yield cuts a bit extra to ship the ordered qty', () => {

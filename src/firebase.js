@@ -120,13 +120,15 @@ export async function loadCore() {
   const cached = _ls.get(CORE_KEY)
   if (cached && cached.day === today() && cached.core) return cached.core // already read today
   try {
-    const [metaSnap, cfgSnap, daysSnap] = await Promise.all([
+    const [metaSnap, cfgSnap, daysSnap, histSnap] = await Promise.all([
       getDoc(doc(db, 'laser_meta', CARD)),
       getDoc(doc(db, 'laser_config', 'settings')),
       getDocs(query(collection(db, 'laser_days'), where('cardId', '==', CARD))),
+      getDocs(collection(db, 'laser_rate_history')), // effective-dated rate snapshots (small)
     ])
     const days = daysSnap.docs.map((d) => d.data()).sort((a, b) => a.statDate - b.statDate)
-    const core = { meta: metaSnap.data() || {}, cfg: cfgSnap.data() || {}, days }
+    const rateHistory = histSnap.docs.map((d) => d.data())
+    const core = { meta: metaSnap.data() || {}, cfg: cfgSnap.data() || {}, days, rateHistory }
     _ls.set(CORE_KEY, { day: today(), core })
     return core
   } catch (e) {
@@ -143,6 +145,13 @@ export async function loadCore() {
 export async function saveConfig(patch, meta = {}) {
   await setDoc(doc(db, 'laser_config', 'settings'),
     { ...patch, ratesUpdatedAt: Date.now(), ratesUpdatedBy: meta.by || '' }, { merge: true })
+  // Effective-dated snapshot: a full copy of the rates that take effect FROM TODAY. Past days
+  // keep their earlier snapshot, so this change never re-costs already-supplied work.
+  const effYmd = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''))
+  try {
+    await setDoc(doc(db, 'laser_rate_history', String(effYmd)),
+      { ...patch, effectiveFrom: effYmd, by: meta.by || '', at: Date.now() }, { merge: true })
+  } catch { /* history is best-effort; the live settings still saved above */ }
   if (meta.changes && meta.changes.length) {
     try {
       await setDoc(doc(db, 'laser_config_log', String(Date.now())),
