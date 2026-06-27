@@ -147,7 +147,10 @@ export async function saveConfig(patch, meta = {}) {
     { ...patch, ratesUpdatedAt: Date.now(), ratesUpdatedBy: meta.by || '' }, { merge: true })
   // Effective-dated snapshot: a full copy of the rates that take effect FROM TODAY. Past days
   // keep their earlier snapshot, so this change never re-costs already-supplied work.
-  const effYmd = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''))
+  // Use the LOCAL (IST) date — laser_days.statDate is local-dated, and a UTC date would mis-stamp
+  // an early-morning edit as the previous day.
+  const _d = new Date()
+  const effYmd = _d.getFullYear() * 10000 + (_d.getMonth() + 1) * 100 + _d.getDate()
   try {
     await setDoc(doc(db, 'laser_rate_history', String(effYmd)),
       { ...patch, effectiveFrom: effYmd, by: meta.by || '', at: Date.now() }, { merge: true })

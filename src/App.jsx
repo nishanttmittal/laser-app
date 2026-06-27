@@ -955,7 +955,7 @@ export default function App() {
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}
-        {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} /> : <Loading />)}
+        {tab === 'Costing' && (ready ? <CostingTab jobs={mappedJobs} days={days} cfg={cfg} mo={mo} rateHistory={core.rateHistory} /> : <Loading />)}
         {tab === 'Reports' && (ready ? <Reports days={days} jobs={mappedJobs} cfg={cfg} mo={mo} /> : <Loading />)}
         {tab === 'Admin' && (ready ? <Admin meta={meta} days={days} jobs={mappedJobs} cfg={cfg} userEmail={user.email} onSaved={() => loadSizeMap().then(setSizeMap)} onCatalogSaved={() => loadCatalog().then(setCatalog)} onRatesSaved={refresh} /> : <Loading />)}
       </main>
