@@ -270,7 +270,7 @@ function Costing({ jobs, cfg, mo }) {
   const f = cfg.monthlyFixed || {}
   const items = [
     ['Operator', f.operator], ['Maintenance', f.maintenance], ['Rent', f.rent], ['Consumables', f.consumables],
-    ['Depreciation', cfg.depreciationMonthly], ['Electricity (from real kWh)', mo.mElec],
+    ['Depreciation', cfg.depreciationMonthly], ['Electricity', mo.mElec],
   ]
   return (
     <div>
