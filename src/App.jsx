@@ -245,12 +245,14 @@ function Costing({ jobs, cfg, mo }) {
   const [quoteRate, setQuoteRate] = useState(charge) // per-quote ₹/min override (defaults to global)
   const [newPart, setNewPart] = useState(false)
   const rateNum = +quoteRate > 0 ? +quoteRate : charge
-  const belowCost = rateNum < (mo.costPerBillMin || 0)
   const sel = sizes.find((s) => s.sizeKey === sizeKey)
   const spp = sel ? sel.secPerPiece || 0 : 0
   const piecesPerTube = sel && sel.goodPieces && sel.runs ? sel.goodPieces / sel.runs : (sel && sel.runs ? sel.pieces / sel.runs : 0)
   const { cutMin, setupMin, loadingMin, progMin, tubes, qcMin, billMin, quoteCharge, quoteCost, minApplied } =
     quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin, piecesPerTube, newPart, chargePerMin: rateNum })
+  // Warn only when THIS job actually loses money (true margin, incl. the min-order floor) —
+  // not a rate-level proxy that over-warns on tiny jobs the ₹ minimum makes profitable.
+  const quoteLoss = quoteCharge - quoteCost < 0
   const qcPct = cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12
   const shareQuote = async () => {
     // customer-facing ONLY — never include cost or margin
@@ -313,10 +315,13 @@ function Costing({ jobs, cfg, mo }) {
         </label>
         <label className="chk"><input type="checkbox" checked={newPart} onChange={(e) => setNewPart(e.target.checked)} /> New part — add one-time programming ({cfg.programmingMin ?? 25} min)</label>
       </div>
-      <div className={'note' + (belowCost ? ' err' : '')}>
-        {rateNum !== charge ? `Custom rate ₹${rateNum}/min (default ₹${charge}/min). ` : `Using default ₹${charge}/min. `}
-        Your cost ≈ ₹{Math.round(mo.costPerBillMin || 0)}/min{belowCost ? ' — ⚠ this quote is BELOW cost (it loses money).' : ' — you keep the difference as margin.'}
-      </div>
+      {sel && (
+        <div className={'note' + (quoteLoss ? ' err' : '')}>
+          {rateNum !== charge ? `Custom rate ₹${rateNum}/min (default ₹${charge}/min). ` : `Using default ₹${charge}/min. `}
+          Cost ≈ ₹{Math.round(mo.costPerBillMin || 0)}/min.
+          {quoteLoss ? ' ⚠ This quote is BELOW cost — it loses money (see margin below).' : ' You keep the difference as margin.'}
+        </div>
+      )}
       {sel ? (
         <div className="tbl">
           <div className="tr"><span>Avg sec/piece (history)</span><span>{spp.toFixed(1)} s</span><span /><span /><span /></div>
