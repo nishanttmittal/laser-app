@@ -14,6 +14,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 export const db = getFirestore(app)
+// Machine id — declared up here because module-level constants below (CAT_KEY, CORE_KEY, …)
+// interpolate it; declaring it later caused a "Cannot access 'CARD' before initialization"
+// crash that blanked the whole app on load.
+export const CARD = '250811133266'
 const auth = getAuth(app)
 const provider = new GoogleAuthProvider()
 provider.setCustomParameters({ prompt: 'select_account' })
@@ -97,8 +101,6 @@ export async function saveMeterReading({ date, meterA, meterB, note }) {
     note: note || '', enteredAt: Date.now(),
   }, { merge: true })
 }
-
-export const CARD = '250811133266'
 
 // ---- once-a-day read gate (data barely changes intraday; saves Firestore quota) ----
 const CORE_KEY = `laser_core_${CARD}`
