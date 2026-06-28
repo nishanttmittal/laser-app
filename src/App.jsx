@@ -768,11 +768,16 @@ function Admin({ meta, days, jobs, cfg, userEmail, onSaved, onCatalogSaved, onRa
 /* ---------- shell ---------- */
 const TABS = ['Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
+// Real UNICO logo (maroon-on-white) in a white badge — replaces the old text wordmark. base-aware.
+const LOGO = import.meta.env.BASE_URL + 'unico-logo.png'
+function Brand() {
+  return (<span className="brand"><img className="brandlogo" src={LOGO} alt="UNICO" /><span className="ttl">Laser</span></span>)
+}
 function Login() {
   const [busy, setBusy] = useState(false)
   return (
     <div className="app"><div className="login">
-      <div><span className="logo">UNICO</span> <span className="ttl">Laser</span></div>
+      <div><Brand /></div>
       <p>Production, utilization & costing — sign in to view.</p>
       <button className="btn wa" disabled={busy} onClick={async () => { setBusy(true); try { await signInWithGoogle() } catch (e) { alert(e.message); setBusy(false) } }}>{busy ? 'Opening…' : 'Sign in with Google'}</button>
     </div></div>
@@ -781,7 +786,7 @@ function Login() {
 function Unauthorized({ email }) {
   return (
     <div className="app"><div className="login">
-      <div><span className="logo">UNICO</span> <span className="ttl">Laser</span></div>
+      <div><Brand /></div>
       <p className="err"><b>{email}</b> isn't authorized for this app.</p>
       <p className="note">Ask the admin to add your email, then sign in again.</p>
       <button className="btn" onClick={signOutUser}>Sign out</button>
@@ -875,7 +880,7 @@ function StaffMeter({ user }) {
   const [t, setT] = useState('Meter')
   return (
     <div className="app">
-      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
+      <header className="top"><Brand />
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 'auto' }}>Sign out</button>
       </header>
       <main>{t === 'Meter' ? <MeterEntry /> : <JobCatalog />}<div className="note">Signed in as {user.email}</div></main>
@@ -937,7 +942,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="top"><span className="logo">UNICO</span><span className="ttl">Laser</span>
+      <header className="top"><Brand />
         {!ready && <span className="sync">loading runs…</span>}
         <button className="signout" onClick={refresh} title="Refresh (live read)" style={{ marginLeft: 'auto' }}>↻ Refresh</button>
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 8 }}>Sign out</button>

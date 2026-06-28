@@ -22,6 +22,11 @@ h2, .logo, .ttl, .hero-t, .card-t, .sep, .tabs button { font-family: var(--displ
   border-bottom: 1px solid var(--line); }
 .logo { font-weight: 800; letter-spacing: 1.5px; color: var(--accent); font-size: 15px; }
 .ttl { font-weight: 500; color: var(--mut); letter-spacing: .5px; font-size: 13px; }
+/* Real logo in a white badge (logo is maroon-on-white, header is dark). */
+.brand { display: inline-flex; align-items: center; gap: 8px; }
+.brandlogo { height: 26px; width: auto; display: block; background: #fff; border-radius: 5px; padding: 3px 6px; }
+.login .brand { gap: 10px; }
+.login .brandlogo { height: 34px; }
 .sync { margin-left: auto; font-size: 11px; color: var(--faint); }
 
 main { padding: 6px 16px 24px; }
