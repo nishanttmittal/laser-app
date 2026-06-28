@@ -211,6 +211,14 @@ test('quoteJob: reject yield cuts a bit extra to ship the ordered qty', () => {
   assert.equal(+q.cutMin.toFixed(2), 10.20);      // 102.04 * 6 / 60
 });
 
+test('quoteJob: per-quote ₹/min override changes the price; 0/blank falls back to global', () => {
+  const c = { chargePerMin: 40, setup: { dimensionChangeMin: 0, loadSecPerTube: 0 }, qcPct: 0, minOrderCharge: 0 };
+  const args = { secPerPiece: 60, qty: 10, setupType: 'none', cfg: c, costPerBillMin: 20 }; // 10 billable min
+  assert.equal(quoteJob(args).quoteCharge, 400);                              // global ₹40
+  assert.equal(quoteJob({ ...args, chargePerMin: 55 }).quoteCharge, 550);    // custom ₹55
+  assert.equal(quoteJob({ ...args, chargePerMin: 0 }).quoteCharge, 400);     // 0 -> falls back to ₹40
+});
+
 test('quoteJob: new-part programming is a one-time block, only when flagged', () => {
   const cfgP = { ...cfg, programmingMin: 25 };
   assert.equal(quoteJob({ secPerPiece: 6, qty: 100, setupType: 'none', cfg: cfgP, costPerBillMin: 20, newPart: true }).progMin, 25);

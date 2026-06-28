@@ -59,9 +59,11 @@ export function monthlyCost(days, cfg = {}, jobs = null) {
 
 // A single job quote. setupType: 'dimension' | 'length' | 'none'.
 // The loading & QC buffer (+bufferPct) applies whenever stdMin > thresholdMin (0 = all jobs).
-export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0, piecesPerTube = 0, newPart = false }) {
+export function quoteJob({ secPerPiece = 0, qty = 0, setupType = 'dimension', cfg = {}, costPerBillMin = 0, piecesPerTube = 0, newPart = false, chargePerMin = null }) {
   const sc = cfg.setup || {};
-  const charge = cfg.chargePerMin || 40;
+  // Per-quote price override: a custom ₹/min for THIS quote only (volume/rush/negotiated).
+  // Falls back to the global rate when not given. Never changes the global or any data.
+  const charge = (+chargePerMin > 0) ? +chargePerMin : (cfg.chargePerMin || 40);
   // Reject yield: cut a bit extra so the customer still receives the ordered qty.
   const yld = 1 / (1 - (cfg.rejectionPct ?? 0) / 100);
   const qtyCut = qty * yld;

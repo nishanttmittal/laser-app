@@ -242,12 +242,15 @@ function Costing({ jobs, cfg, mo }) {
   const [qty, setQty] = useState(100)
   const [setupType, setSetupType] = useState('dimension')
   const charge = cfg.chargePerMin || 40
+  const [quoteRate, setQuoteRate] = useState(charge) // per-quote ₹/min override (defaults to global)
   const [newPart, setNewPart] = useState(false)
+  const rateNum = +quoteRate > 0 ? +quoteRate : charge
+  const belowCost = rateNum < (mo.costPerBillMin || 0)
   const sel = sizes.find((s) => s.sizeKey === sizeKey)
   const spp = sel ? sel.secPerPiece || 0 : 0
   const piecesPerTube = sel && sel.goodPieces && sel.runs ? sel.goodPieces / sel.runs : (sel && sel.runs ? sel.pieces / sel.runs : 0)
   const { cutMin, setupMin, loadingMin, progMin, tubes, qcMin, billMin, quoteCharge, quoteCost, minApplied } =
-    quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin, piecesPerTube, newPart })
+    quoteJob({ secPerPiece: spp, qty, setupType, cfg, costPerBillMin: mo.costPerBillMin, piecesPerTube, newPart, chargePerMin: rateNum })
   const qcPct = cfg.qcPct ?? cfg.longJob?.bufferPct ?? 12
   const shareQuote = async () => {
     // customer-facing ONLY — never include cost or margin
@@ -298,6 +301,9 @@ function Costing({ jobs, cfg, mo }) {
         <label>Quantity (pieces)
           <input type="number" value={qty} onChange={(e) => setQty(+e.target.value || 0)} />
         </label>
+        <label>₹/min for this quote
+          <input type="number" inputMode="decimal" value={quoteRate} onChange={(e) => setQuoteRate(e.target.value)} />
+        </label>
         <label>Setup
           <select value={setupType} onChange={(e) => setSetupType(e.target.value)}>
             <option value="dimension">Dimension change (+{cfg.setup?.dimensionChangeMin ?? 40}m)</option>
@@ -306,6 +312,10 @@ function Costing({ jobs, cfg, mo }) {
           </select>
         </label>
         <label className="chk"><input type="checkbox" checked={newPart} onChange={(e) => setNewPart(e.target.checked)} /> New part — add one-time programming ({cfg.programmingMin ?? 25} min)</label>
+      </div>
+      <div className={'note' + (belowCost ? ' err' : '')}>
+        {rateNum !== charge ? `Custom rate ₹${rateNum}/min (default ₹${charge}/min). ` : `Using default ₹${charge}/min. `}
+        Your cost ≈ ₹{Math.round(mo.costPerBillMin || 0)}/min{belowCost ? ' — ⚠ this quote is BELOW cost (it loses money).' : ' — you keep the difference as margin.'}
       </div>
       {sel ? (
         <div className="tbl">
