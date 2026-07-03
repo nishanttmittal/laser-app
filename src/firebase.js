@@ -83,10 +83,10 @@ export async function loadCatalog() {
     throw e
   }
 }
-export async function saveCatalogJob({ id, name, photo, fileName, notes }) {
+export async function saveCatalogJob({ id, name, photo, sizeKey, fileName, notes }) {
   const docId = id || `${CARD}_${Date.now()}`
   await setDoc(doc(db, 'laser_job_catalog', docId), {
-    cardId: CARD, name: name || '', photo: photo || '', fileName: (fileName || '').trim(), notes: notes || '', updatedAt: Date.now(),
+    cardId: CARD, name: name || '', photo: photo || '', sizeKey: (sizeKey || '').trim(), fileName: (fileName || '').trim(), notes: notes || '', updatedAt: Date.now(),
   }, { merge: true })
   _catalog = null; try { localStorage.removeItem(CAT_KEY) } catch { /* ignore */ } // invalidate -> next load re-reads
   return docId

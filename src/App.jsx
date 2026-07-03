@@ -849,29 +849,44 @@ function MeterEntry() {
 
 function JobCatalog({ onSaved }) {
   const [list, setList] = useState(null)
+  const [sizes, setSizes] = useState([]) // [{ sizeKey, pieces }] from real cutting data
   const [q, setQ] = useState('')
-  const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [fileName, setFileName] = useState('')
+  const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [sizeKey, setSizeKey] = useState('')
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('')
   const load = () => loadCatalog().then(setList).catch(() => setList([]))
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Size dropdown = the same sizes the By-size view derives, so a photo links to what staff see.
+    Promise.all([loadJobs(), loadSizeMap()])
+      .then(([jobs, map]) => {
+        const rows = groupBySize(enrichJobs(jobs || [], map)).filter((r) => r.hasSize)
+        setSizes(rows.map((r) => ({ sizeKey: r.sizeKey, pieces: r.pieces })))
+      })
+      .catch(() => setSizes([]))
+  }, [])
   const onPhoto = async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; try { setPhoto(await compressImage(f)) } catch { setMsg('Could not read that photo.') } }
   const save = async () => {
     if (!name.trim()) { setMsg('Give the job a name.'); return }
     setBusy(true); setMsg('')
-    try { await saveCatalogJob({ name, photo, fileName }); setName(''); setPhoto(''); setFileName(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
+    try { await saveCatalogJob({ name, photo, sizeKey }); setName(''); setPhoto(''); setSizeKey(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
     catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
-  const rows = (list || []).filter((j) => !q || (`${j.name} ${j.fileName || ''}`).toLowerCase().includes(q.toLowerCase()))
+  const rows = (list || []).filter((j) => !q || (`${j.name} ${j.sizeKey || j.fileName || ''}`).toLowerCase().includes(q.toLowerCase()))
   return (
     <div>
       <h2>Job catalog</h2>
-      <div className="note">Photograph the job, name it, and (optional) link the machine file. Names are reusable; tagged files show the name in the rest of the app.</div>
+      <div className="note">Photograph the job, name it, and pick its size. The photo then shows against that size across the app.</div>
       <div className="quote">
         <label>Job name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Varun table leg" /></label>
         <label>Photo<input type="file" accept="image/*" capture="environment" onChange={onPhoto} /></label>
         {photo && <img src={photo} alt="" className="catimg" />}
-        <label>Link machine file (optional)<input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder="e.g. 858x6010x31.75.zzx" /></label>
+        <label>Size
+          <select value={sizeKey} onChange={(e) => setSizeKey(e.target.value)}>
+            <option value="">— pick a size —</option>
+            {sizes.map((s) => <option key={s.sizeKey} value={s.sizeKey}>{s.sizeKey} · {fmt(s.pieces)} pcs</option>)}
+          </select>
+        </label>
       </div>
       <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save job'}</button>
       {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
@@ -881,7 +896,7 @@ function JobCatalog({ onSaved }) {
           <div className="catcard" key={j.id}>
             {j.photo ? <img src={j.photo} alt={j.name} /> : <div className="catnoimg">no photo</div>}
             <div className="catname">{j.name}</div>
-            {j.fileName && <div className="catfile">{j.fileName}</div>}
+            {(j.sizeKey || j.fileName) && <div className="catfile">{j.sizeKey || j.fileName}</div>}
           </div>
         ))}
         {list && !rows.length && <div className="note">No jobs saved yet — add the first one above.</div>}

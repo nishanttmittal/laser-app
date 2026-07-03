@@ -8,30 +8,41 @@ export const normFile = (p) => baseName(p).trim().toLowerCase();
 // Same, but without the machine extension, so "123" matches "123.zzx".
 const noExt = (p) => normFile(p).replace(/\.(zx|zzx|dxf|nc|tube)$/i, '');
 
-// Build a lookup from a catalog list. Each entry must have a fileName to be linkable.
-// Keyed by both the full basename and the extension-stripped name (newest wins on clash).
+// Build a lookup from a catalog list -> { bySize, byFile }.
+// Primary link is the derived SIZE (e.g. '54x50 t3.2'); a legacy fileName link is kept as a
+// fallback so old typed-file entries still work. Newest wins on a clash (sort by updatedAt asc
+// so the latest edit is written last). File map is keyed by full basename + ext-stripped name.
 export function buildCatalogIndex(catalog) {
-  const idx = new Map();
-  for (const c of catalog || []) {
-    if (!c || !c.fileName) continue;
-    const entry = { id: c.id, name: c.name || '', photo: c.photo || '', fileName: c.fileName };
-    const k1 = normFile(c.fileName), k2 = noExt(c.fileName);
-    if (k1) idx.set(k1, entry);
-    if (k2 && !idx.has(k2)) idx.set(k2, entry);
+  const bySize = new Map();
+  const byFile = new Map();
+  const ordered = (catalog || []).slice().sort((a, b) => (a?.updatedAt || 0) - (b?.updatedAt || 0));
+  for (const c of ordered) {
+    if (!c || (!c.sizeKey && !c.fileName)) continue; // unlinkable
+    const entry = { id: c.id, name: c.name || '', photo: c.photo || '', sizeKey: c.sizeKey || '', fileName: c.fileName || '' };
+    if (c.sizeKey) bySize.set(c.sizeKey, entry);
+    if (c.fileName) {
+      const k1 = normFile(c.fileName), k2 = noExt(c.fileName);
+      if (k1) byFile.set(k1, entry);
+      if (k2) byFile.set(k2, entry);
+    }
   }
-  return idx;
+  return { bySize, byFile };
 }
 
-// Find the catalog entry for one job (by its file), or null.
+const idxEmpty = (idx) => !idx || ((!idx.bySize || !idx.bySize.size) && (!idx.byFile || !idx.byFile.size));
+
+// Find the catalog entry for one job — by SIZE first, then the legacy file link — or null.
 export function matchCatalog(job, idx) {
-  if (!idx || !idx.size || !job) return null;
+  if (idxEmpty(idx) || !job) return null;
+  if (idx.bySize && job.sizeKey && idx.bySize.has(job.sizeKey)) return idx.bySize.get(job.sizeKey);
   const f = job.file || job.fileName || '';
-  return idx.get(normFile(f)) || idx.get(noExt(f)) || null;
+  if (idx.byFile) return idx.byFile.get(normFile(f)) || idx.byFile.get(noExt(f)) || null;
+  return null;
 }
 
 // Attach catName / catPhoto to every job that has a catalog match (others pass through).
 export function tagJobs(jobs, idx) {
-  if (!idx || !idx.size) return jobs || [];
+  if (idxEmpty(idx)) return jobs || [];
   return (jobs || []).map((j) => {
     const hit = matchCatalog(j, idx);
     return hit ? { ...j, catName: hit.name, catPhoto: hit.photo } : j;
