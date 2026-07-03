@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveSize, enrichJobs, groupBySize, unlabelledFiles } from './sizemap.js';
+import { deriveSize, enrichJobs, groupBySize, unlabelledFiles, sizeOptions } from './sizemap.js';
+
+test('sizeOptions: one row per labelled size, pieces summed, last-cut day, sorted newest-cut first', () => {
+  const jobs = [
+    { sizeKey: '54x50 t3.2', hasSize: true, partAmount: 79, day: '20260701' },
+    { sizeKey: '54x50 t3.2', hasSize: true, partAmount: 20, day: '20260702' }, // newer + more total
+    { sizeKey: '31.75x35 t3', hasSize: true, partAmount: 100, day: '20260628' },
+    { hasSize: false, partAmount: 5, day: '20260702' }, // unlabelled -> excluded
+  ];
+  const opts = sizeOptions(jobs);
+  assert.equal(opts.length, 2);
+  assert.equal(opts[0].sizeKey, '54x50 t3.2');   // last cut 20260702 -> first
+  assert.equal(opts[0].pieces, 99);              // 79 + 20
+  assert.equal(opts[0].lastDay, '20260702');
+  assert.equal(opts[1].sizeKey, '31.75x35 t3');
+});
 
 test('deriveSize keeps a clean upstream size', () => {
   assert.deepEqual(deriveSize({ file: 'x.zzx', sizeKey: '30x20 t1.2', hasSize: true }),

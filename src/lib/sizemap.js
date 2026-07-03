@@ -71,6 +71,20 @@ export function groupBySize(jobs) {
   return rows;
 }
 
+// Options for the catalog size picker: one row per real (labelled) size with total pieces and
+// the last day it was cut. Sorted newest-cut first, then by volume. Pure + testable.
+export function sizeOptions(jobs) {
+  const m = {};
+  for (const j of jobs || []) {
+    if (!j.hasSize) continue;
+    const r = (m[j.sizeKey] = m[j.sizeKey] || { sizeKey: j.sizeKey, pieces: 0, lastDay: '' });
+    r.pieces += j.partAmount || 0;
+    const d = String(j.day || '');
+    if (d > r.lastDay) r.lastDay = d;
+  }
+  return Object.values(m).sort((a, b) => a.lastDay < b.lastDay ? 1 : a.lastDay > b.lastDay ? -1 : b.pieces - a.pieces);
+}
+
 export function unlabelledFiles(jobs) {
   const m = {};
   for (const j of jobs || []) {

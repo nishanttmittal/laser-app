@@ -25,7 +25,8 @@ function compressImage(file, maxDim = 600, quality = 0.6) {
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
 import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
-import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
+import { enrichJobs, groupBySize, unlabelledFiles, sizeOptions } from './lib/sizemap.js'
+import { cutoffYmd } from './lib/jobcache.js'
 import { buildCatalogIndex, tagJobs, sizeCatalog } from './lib/catalog.js'
 import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
@@ -849,44 +850,62 @@ function MeterEntry() {
 
 function JobCatalog({ onSaved }) {
   const [list, setList] = useState(null)
-  const [sizes, setSizes] = useState([]) // [{ sizeKey, pieces }] from real cutting data
-  const [q, setQ] = useState('')
+  const [opts, setOpts] = useState([]) // [{ sizeKey, pieces, lastDay }] newest-cut first
+  const [q, setQ] = useState('')       // search saved cards
+  const [szq, setSzq] = useState('')   // search all sizes (picker)
   const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [sizeKey, setSizeKey] = useState('')
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('')
   const load = () => loadCatalog().then(setList).catch(() => setList([]))
   useEffect(() => {
     load()
-    // Size dropdown = the same sizes the By-size view derives, so a photo links to what staff see.
+    // Size options from real cutting data (same derivation as the By-size view), so a photo
+    // links to a size staff recognise. Newest-cut sizes are surfaced first.
     Promise.all([loadJobs(), loadSizeMap()])
-      .then(([jobs, map]) => {
-        const rows = groupBySize(enrichJobs(jobs || [], map)).filter((r) => r.hasSize)
-        setSizes(rows.map((r) => ({ sizeKey: r.sizeKey, pieces: r.pieces })))
-      })
-      .catch(() => setSizes([]))
+      .then(([jobs, map]) => setOpts(sizeOptions(enrichJobs(jobs || [], map))))
+      .catch(() => setOpts([]))
   }, [])
   const onPhoto = async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; try { setPhoto(await compressImage(f)) } catch { setMsg('Could not read that photo.') } }
   const save = async () => {
     if (!name.trim()) { setMsg('Give the job a name.'); return }
     setBusy(true); setMsg('')
-    try { await saveCatalogJob({ name, photo, sizeKey }); setName(''); setPhoto(''); setSizeKey(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
+    try { await saveCatalogJob({ name, photo, sizeKey }); setName(''); setPhoto(''); setSizeKey(''); setSzq(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
     catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
   const rows = (list || []).filter((j) => !q || (`${j.name} ${j.sizeKey || j.fileName || ''}`).toLowerCase().includes(q.toLowerCase()))
+  // Picker: when searching, show all matches; otherwise just sizes cut in the last 7 days
+  // (fall back to the 8 most-recent/biggest if nothing was cut recently). Big tap buttons.
+  const recentCut = cutoffYmd(new Date(), 7)
+  const recent = opts.filter((o) => o.lastDay >= recentCut)
+  const picker = szq
+    ? opts.filter((o) => o.sizeKey.toLowerCase().includes(szq.toLowerCase()))
+    : (recent.length ? recent : opts.slice(0, 8))
   return (
     <div>
       <h2>Job catalog</h2>
-      <div className="note">Photograph the job, name it, and pick its size. The photo then shows against that size across the app.</div>
+      <div className="note">Photograph the job, name it, and tap the size you just cut. The photo then shows against that size across the app.</div>
       <div className="quote">
         <label>Job name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Varun table leg" /></label>
         <label>Photo<input type="file" accept="image/*" capture="environment" onChange={onPhoto} /></label>
         {photo && <img src={photo} alt="" className="catimg" />}
-        <label>Size
-          <select value={sizeKey} onChange={(e) => setSizeKey(e.target.value)}>
-            <option value="">— pick a size —</option>
-            {sizes.map((s) => <option key={s.sizeKey} value={s.sizeKey}>{s.sizeKey} · {fmt(s.pieces)} pcs</option>)}
-          </select>
-        </label>
+      </div>
+      <div className="szpickwrap">
+        <div className="szpickhead">
+          <span>{szq ? 'Matching sizes' : 'Recently cut — tap one'}</span>
+          {sizeKey && <span className="szpicked">✓ {sizeKey}</span>}
+        </div>
+        <input className="search" placeholder="Search all sizes…" value={szq} onChange={(e) => setSzq(e.target.value)} />
+        <div className="szpick">
+          {picker.map((o) => (
+            <button type="button" key={o.sizeKey}
+              className={'szbtn' + (o.sizeKey === sizeKey ? ' on' : '')}
+              onClick={() => setSizeKey(o.sizeKey === sizeKey ? '' : o.sizeKey)}>
+              <span className="szbtn-k">{o.sizeKey}</span>
+              <span className="szbtn-m">{fmt(o.pieces)} pcs · {prettyYmd(o.lastDay)}</span>
+            </button>
+          ))}
+          {!picker.length && <div className="note">{opts.length ? 'No size matches — try a shorter search.' : 'No cutting data yet.'}</div>}
+        </div>
       </div>
       <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save job'}</button>
       {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
