@@ -81,7 +81,7 @@ function Dashboard({ days, cfg, mo, meta }) {
   const kPcs = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n || '')
   const target = cfg.utilTargetPct || 50
   const fixedDaily = Math.round((mo.fixedExclElec || 0) / 30)
-  const idleH = headline.powerOnPct != null ? +(24 - (headline.workH || 0)).toFixed(1) : null
+  const idleH = headline.powerOnPct != null ? +Math.max(0, 24 - (headline.workH || 0)).toFixed(1) : null
   return (
     <div>
       <StatusStrip meta={meta} />
@@ -920,8 +920,10 @@ function MeterEntry() {
   const [msg, setMsg] = useState('')
   const save = async () => {
     if (a === '' || b === '') { setMsg('Enter both meter readings.'); return }
+    const ma = Number(a), mb = Number(b)
+    if (!Number.isFinite(ma) || !Number.isFinite(mb) || ma < 0 || mb < 0) { setMsg('Enter valid meter readings (positive numbers only).'); return }
     setBusy(true); setMsg('')
-    try { await saveMeterReading({ date, meterA: a, meterB: b, note }); setMsg('✓ Saved. Thank you!'); setNote('') }
+    try { await saveMeterReading({ date, meterA: ma, meterB: mb, note }); setMsg('✓ Saved. Thank you!'); setNote('') }
     catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
