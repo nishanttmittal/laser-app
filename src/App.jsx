@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, loadCatalog, saveCatalogJob, forceRefresh } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, loadCatalog, saveCatalogJob, saveConfig, forceRefresh } from './firebase'
 
 // Downscale a phone photo to a small JPEG data URL (keeps Firestore docs tiny).
 function compressImage(file, maxDim = 600, quality = 0.6) {
