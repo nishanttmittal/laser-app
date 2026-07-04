@@ -32,6 +32,7 @@ import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
 import { periodReport } from './lib/reportData.js'
 import { buildPeriodPDF } from './lib/pdf.js'
+import { buildParts, daysWithJobs } from './lib/partsView.js'
 
 /* ---------- helpers ---------- */
 const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
@@ -619,6 +620,106 @@ function Margin({ days, cfg, mo, rateHistory }) {
   )
 }
 
+// Inline SVG tube icon — round when section starts with R (e.g. R25), rect/square otherwise.
+function TubeIcon({ section }) {
+  const isRound = /^R/i.test(section || '')
+  if (isRound) {
+    return (
+      <div className="particon" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="20" cy="20" r="16" stroke="#2dd4ee" strokeWidth="3" />
+          <circle cx="20" cy="20" r="9" stroke="#2dd4ee" strokeWidth="1.5" strokeDasharray="3 2" opacity=".45" />
+        </svg>
+      </div>
+    )
+  }
+  return (
+    <div className="particon" aria-hidden="true">
+      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="10" width="32" height="20" rx="2" stroke="#2dd4ee" strokeWidth="3" />
+        <rect x="10" y="15" width="20" height="10" rx="1" stroke="#2dd4ee" strokeWidth="1.5" strokeDasharray="3 2" opacity=".45" />
+      </svg>
+    </div>
+  )
+}
+
+function Parts({ jobs, days, cfg, role }) {
+  const allDays = useMemo(() => daysWithJobs(jobs), [jobs])
+  const [day, setDay] = useState(() => allDays[0] || '')
+  const [q, setQ] = useState('')
+
+  // Keep day in sync if jobs load after initial render
+  const effectiveDay = allDays.includes(day) ? day : (allDays[0] || '')
+
+  const cards = useMemo(() => buildParts(jobs, { day: effectiveDay }), [jobs, effectiveDay])
+
+  // Monthly cost basis — computed once per full dataset unconditionally (hook rule).
+  // Render is gated on role==='owner' below; the hook itself must always run.
+  const mo = useMemo(() => monthlyCost(days || [], cfg || {}, jobs || []), [days, cfg, jobs])
+
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return cards
+    return cards.filter((c) => (c.label + ' ' + c.sizeKey + ' ' + c.section).toLowerCase().includes(t))
+  }, [cards, q])
+
+  return (
+    <div>
+      <h2>Parts ({fmt(cards.length)} types · {fmt(cards.reduce((a, c) => a + c.pieces, 0))} pcs)</h2>
+      <div className="partpicker">
+        <select value={effectiveDay} onChange={(e) => setDay(e.target.value)} aria-label="Select day">
+          {allDays.length ? allDays.map((d) => (
+            <option key={d} value={d}>{prettyYmd(d)}</option>
+          )) : <option value="">No data</option>}
+        </select>
+        <input className="search" style={{ margin: 0, flex: 2, minWidth: 160 }}
+          placeholder="Search label, size…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {!filtered.length && <div className="note">{allDays.length ? 'No parts match.' : 'No production data yet.'}</div>}
+      <div className="joblist">
+        {filtered.map((c) => {
+          // ₹ costing — owner only, computed per card
+          let costPerPc = null, pricePerPc = null, marginPerPc = null
+          if (role === 'owner' && c.secPerPiece > 0 && c.pieces > 0) {
+            const qr = quoteJob({ secPerPiece: c.secPerPiece, qty: c.pieces, setupType: 'none', cfg: cfg || {}, costPerBillMin: mo.costPerBillMin, chargePerMin: (cfg || {}).chargePerMin })
+            const n = c.pieces
+            // Analytics view (what was actually cut), NOT a customer quote: use rawCharge so the
+            // ₹500 min-order floor doesn't inflate per-piece price/margin on small-batch cards.
+            costPerPc = qr.quoteCost / n
+            pricePerPc = qr.rawCharge / n
+            marginPerPc = (qr.rawCharge - qr.quoteCost) / n
+          }
+          const lengthStr = c.length != null ? `${c.length} mm · ` : ''
+          const thkStr = c.thickness != null ? `t${c.thickness} mm` : (c.sizeKey || '')
+          return (
+            <div className="jobcard" key={c.key}>
+              <div className="jobcard-head">
+                {c.catPhoto
+                  ? <img className="jobthumb" src={c.catPhoto} alt="" />
+                  : <TubeIcon section={c.section || c.sizeKey} />}
+                <span className={'chip' + (c.hasSize ? '' : ' warn')}>{c.label}</span>
+                <span className="jobcard-when">×{fmt(c.pieces)}</span>
+              </div>
+              <div className="jobcard-sub">{lengthStr}{thkStr}{c.runs > 1 ? ` · (${c.runs} runs)` : ''}</div>
+              <div className="jobcard-stats">
+                <div><b>{c.totalMin.toFixed(1)}</b><span>min</span></div>
+                <div><b>{c.pcsPerMin > 0 ? c.pcsPerMin.toFixed(1) : '—'}</b><span>/min</span></div>
+                <div><b>{c.secPerPiece > 0 ? c.secPerPiece.toFixed(1) : '—'}</b><span>s/pc</span></div>
+                <div><b>{fmt(c.pieces)}</b><span>pcs</span></div>
+              </div>
+              {role === 'owner' && costPerPc != null && (
+                <div className="partcard-cost">
+                  cost {rupee(costPerPc)}/pc · price {rupee(pricePerPc)}/pc · margin {rupee(marginPerPc)}/pc
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 const Sep = () => <div className="sep" />
 
 function Production({ jobs, vjobs, cfg, mo }) {
@@ -782,7 +883,7 @@ function Admin({ meta, days, jobs, cfg, userEmail, onSaved, onCatalogSaved, onRa
 }
 
 /* ---------- shell ---------- */
-const TABS = ['Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
+const TABS = ['Parts', 'Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 // Real UNICO logo (maroon-on-white) in a white badge — replaces the old text wordmark. base-aware.
 const LOGO = import.meta.env.BASE_URL + 'unico-logo.png'
@@ -942,7 +1043,7 @@ function StaffMeter({ user }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState('Dashboard')
+  const [tab, setTab] = useState('Parts')
   const [period, setPeriod] = useState('month')
   const [customDate, setCustomDate] = useState('')
   const [core, setCore] = useState(null)
@@ -1006,6 +1107,7 @@ export default function App() {
       )}
       <main>
         <FreshnessBanner days={days} />
+        {tab === 'Parts' && (ready ? <Parts jobs={mappedJobs} days={days} cfg={cfg} role={role} /> : <Loading />)}
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}

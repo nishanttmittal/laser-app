@@ -232,3 +232,14 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .szbtn-k { font-family: var(--mono); font-size: 15px; font-weight: 700; }
 .szbtn.on .szbtn-k { color: var(--accent); }
 .szbtn-m { font-size: 11px; color: var(--mut); }
+
+/* ---- Parts view ---- */
+/* icon placeholder when no catalog photo exists — tube glyph SVG */
+.particon { width: 40px; height: 40px; flex: 0 0 40px; display: flex; align-items: center; justify-content: center; }
+.particon svg { width: 40px; height: 40px; display: block; }
+/* picker row above the card list */
+.partpicker { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.partpicker select { flex: 1; min-width: 140px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--txt); font-size: 14px; font-family: inherit; }
+/* cost row shown only to owner — accent so it reads as important, not just metadata */
+.partcard-cost { font-size: 12px; color: var(--accent); margin-top: 5px; font-family: var(--mono); }
