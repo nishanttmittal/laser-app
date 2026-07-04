@@ -970,6 +970,10 @@ function JobCatalog({ onSaved }) {
   const onPhoto = async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; try { setPhoto(await compressImage(f)) } catch { setMsg('Could not read that photo.') } }
   const save = async () => {
     if (!name.trim()) { setMsg('Give the job a name.'); return }
+    // A card with no size links to nothing (buildCatalogIndex skips it) and never shows anywhere,
+    // and a photo is the whole point of the catalog — so require both before saving.
+    if (!sizeKey) { setMsg('Tap the size you just cut.'); return }
+    if (!photo) { setMsg('Take a photo of the job first.'); return }
     setBusy(true); setMsg('')
     try { await saveCatalogJob({ name, photo, sizeKey }); setName(''); setPhoto(''); setSizeKey(''); setSzq(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
     catch (e) { setMsg('Could not save: ' + e.message) }
