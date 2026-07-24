@@ -235,6 +235,13 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .manifestbar span { color: var(--mut); font-size: 10px; overflow-wrap: anywhere; }
 .manifestbar label { flex: 0 0 auto; cursor: pointer; }
 .manifestbar input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.parts-manifest.active { border-color: rgba(52,211,153,.45); }
+.manifest-message { color: var(--green) !important; }
+.manifest-message.error { color: var(--red) !important; }
+.partvisuals { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+.partvisuals .jobthumb { margin: 0; }
+.part-match { margin: 5px 0 0; color: var(--accent); font: 10px/1.35 var(--mono); overflow-wrap: anywhere; }
+.part-match.ambiguous { color: var(--amber); }
 .programwrap { margin: 6px 0 13px; }
 .programhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px;
   color: var(--mut); font-size: 13px; font-weight: 600; }

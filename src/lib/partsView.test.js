@@ -105,6 +105,7 @@ test('buildParts: label fallback — file basename when portionName and parts bl
   const jobs = [job({ portionName: '', parts: [], file: 'some_part.zzx' })]
   const cards = buildParts(jobs, { day: '20260702' })
   assert.equal(cards[0].label, 'some_part.zzx')
+  assert.equal(cards[0].fileName, 'some_part.zzx')
 })
 
 test('buildParts: label fallback — sizeKey when file is also blank', () => {

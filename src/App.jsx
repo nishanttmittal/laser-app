@@ -652,11 +652,54 @@ function Parts({ jobs, days, cfg, role }) {
   const allDays = useMemo(() => daysWithJobs(jobs), [jobs])
   const [day, setDay] = useState(() => allDays[0] || '')
   const [q, setQ] = useState('')
+  const [manifest, setManifest] = useState(null)
+  const [manifestBusy, setManifestBusy] = useState(false)
+  const [manifestMsg, setManifestMsg] = useState('')
 
   // Keep day in sync if jobs load after initial render
   const effectiveDay = allDays.includes(day) ? day : (allDays[0] || '')
 
   const cards = useMemo(() => buildParts(jobs, { day: effectiveDay }), [jobs, effectiveDay])
+  const machineOptions = useMemo(() => {
+    if (!manifest) return new Map()
+    const merged = mergeMachineManifest(programOptions(jobs), manifest)
+    return new Map(merged
+      .filter((option) => option.runs > 0)
+      .map((option) => [normFile(option.fileName), option]))
+  }, [jobs, manifest])
+  const visualCards = useMemo(() => cards.map((card) => {
+    const option = machineOptions.get(normFile(card.fileName))
+    const previews = programPreviews(option)
+    return {
+      ...card,
+      machinePreview: previews[0]?.dataUrl || '',
+      machineAmbiguous: Boolean(option?.machineCandidates?.length),
+    }
+  }), [cards, machineOptions])
+
+  useEffect(() => {
+    loadMachineManifest()
+      .then((stored) => setManifest(stored))
+      .catch(() => setManifest(null))
+  }, [])
+
+  const onManifest = async (e) => {
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    setManifestBusy(true)
+    setManifestMsg('')
+    try {
+      const next = parseMachineManifest(await file.text())
+      await saveMachineManifest(next)
+      setManifest(next)
+      setManifestMsg(`Imported ${fmt(next.programs.length)} machine programs on this browser.`)
+    } catch (error) {
+      setManifestMsg(`Could not import: ${error.message}`)
+    } finally {
+      setManifestBusy(false)
+      e.target.value = ''
+    }
+  }
 
   // Monthly cost basis — computed once per full dataset unconditionally (hook rule).
   // Render is gated on role==='owner' below; the hook itself must always run.
@@ -664,13 +707,29 @@ function Parts({ jobs, days, cfg, role }) {
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase()
-    if (!t) return cards
-    return cards.filter((c) => (c.label + ' ' + c.sizeKey + ' ' + c.section).toLowerCase().includes(t))
-  }, [cards, q])
+    if (!t) return visualCards
+    return visualCards.filter((c) => (c.label + ' ' + c.sizeKey + ' ' + c.section).toLowerCase().includes(t))
+  }, [visualCards, q])
+  const matchedCount = visualCards.filter((card) => card.machinePreview).length
 
   return (
     <div>
       <h2>Parts ({fmt(cards.length)} types · {fmt(cards.reduce((a, c) => a + c.pieces, 0))} pcs)</h2>
+      <div className={`manifestbar parts-manifest${manifest ? ' active' : ''}`}>
+        <div>
+          <strong>{manifest
+            ? `${fmt(matchedCount)} of ${fmt(visualCards.length)} parts have an exact machine drawing`
+            : 'Machine drawings are not loaded on this browser'}</strong>
+          <span>{manifest
+            ? `${fmt(manifest.programs.length)} programs available · imported once and kept on this device`
+            : 'Import the extracted machine manifest once to show drawings beside production quantities'}</span>
+          {manifestMsg && <span className={`manifest-message${manifestMsg.startsWith('Could not') ? ' error' : ''}`}>{manifestMsg}</span>}
+        </div>
+        <label className="btn secondary compact">
+          {manifest ? 'Replace manifest' : 'Import manifest'}
+          <input type="file" accept="application/json,.json" onChange={onManifest} disabled={manifestBusy} />
+        </label>
+      </div>
       <div className="partpicker">
         <select value={effectiveDay} onChange={(e) => setDay(e.target.value)} aria-label="Select day">
           {allDays.length ? allDays.map((d) => (
@@ -699,13 +758,17 @@ function Parts({ jobs, days, cfg, role }) {
           return (
             <div className="jobcard" key={c.key}>
               <div className="jobcard-head">
-                {c.catPhoto
-                  ? <img className="jobthumb" src={c.catPhoto} alt="" />
-                  : <TubeIcon section={c.section || c.sizeKey} />}
+                <div className="partvisuals">
+                  {c.catPhoto && <img className="jobthumb" src={c.catPhoto} alt={`${c.label} product`} />}
+                  {c.machinePreview && <img className="jobthumb machinepreview" src={c.machinePreview} alt={`${c.fileName} cutting drawing`} />}
+                  {!c.catPhoto && !c.machinePreview && <TubeIcon section={c.section || c.sizeKey} />}
+                </div>
                 <span className={'chip' + (c.hasSize ? '' : ' warn')}>{c.label}</span>
                 <span className="jobcard-when">×{fmt(c.pieces)}</span>
               </div>
               <div className="jobcard-sub">{lengthStr}{thkStr}{c.runs > 1 ? ` · (${c.runs} runs)` : ''}</div>
+              {c.machinePreview && <div className="part-match">Exact machine drawing · {c.fileName}</div>}
+              {c.machineAmbiguous && <div className="part-match ambiguous">Drawing hidden: filename collision</div>}
               <div className="jobcard-stats">
                 <div><b>{c.totalMin.toFixed(1)}</b><span>min</span></div>
                 <div><b>{c.pcsPerMin > 0 ? c.pcsPerMin.toFixed(1) : '—'}</b><span>/min</span></div>

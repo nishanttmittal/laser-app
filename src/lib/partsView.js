@@ -37,6 +37,7 @@ export function buildParts(jobs, { day } = {}) {
     if (!groups[key]) {
       groups[key] = {
         key,
+        fileName: baseName(j.file || j.fileName || ''),
         label: cardLabel(j),
         section: j.section || '',
         length: j.length ?? null,
@@ -77,6 +78,7 @@ export function buildParts(jobs, { day } = {}) {
       const pcsPerMin = g.goodSec > 0 ? g.goodPieces / (g.goodSec / 60) : 0
       return {
         key: g.key,
+        fileName: g.fileName,
         label: g.label,
         section: g.section,
         length: g.length,
