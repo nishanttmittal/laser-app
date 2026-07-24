@@ -21,7 +21,7 @@ const SKIP_FOLDERS = new Set([
 ])
 
 function usage() {
-  console.error('Usage: node scripts/build-machine-manifest.mjs <read-only-source-folder> <output.json> [--previous=old-manifest.json] [--preview-limit-kb=350]')
+  console.error('Usage: node scripts/build-machine-manifest.mjs <read-only-source-folder> <output.json> [--previous=old-manifest.json] [--preview-limit-kb=350] [--verify-hashes]')
 }
 
 function sourceApp(filePath) {
@@ -47,26 +47,38 @@ function hashBytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+function archiveCommands(filePath, entry = '') {
+  const unzip = entry
+    ? { command: 'unzip', args: ['-p', filePath, entry] }
+    : { command: 'unzip', args: ['-Z1', filePath] }
+  const tar = entry
+    ? { command: 'tar', args: ['-xOf', filePath, entry] }
+    : { command: 'tar', args: ['-tf', filePath] }
+  // Windows ships bsdtar but usually not unzip. Linux extraction keeps unzip first because its
+  // ZIP handling and entry names match the original scanner behavior.
+  return process.platform === 'win32' ? [tar, unzip] : [unzip, tar]
+}
+
+function readArchive(filePath, entry = '', encoding = null, maxBuffer = 32 * 1024 * 1024) {
+  for (const candidate of archiveCommands(filePath, entry)) {
+    const result = spawnSync(candidate.command, candidate.args, {
+      encoding,
+      maxBuffer,
+      timeout: 5000,
+      windowsHide: true,
+    })
+    if (result.status === 0 && result.stdout?.length) return result.stdout
+  }
+  return null
+}
+
 function unzipEntry(filePath, entry) {
-  const result = spawnSync('unzip', ['-p', filePath, entry], {
-    encoding: null,
-    maxBuffer: 32 * 1024 * 1024,
-    timeout: 5000,
-    windowsHide: true,
-  })
-  return result.status === 0 && result.stdout?.length ? result.stdout : null
+  return readArchive(filePath, entry)
 }
 
 function unzipEntries(filePath) {
-  const result = spawnSync('unzip', ['-Z1', filePath], {
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-    timeout: 5000,
-    windowsHide: true,
-  })
-  return result.status === 0
-    ? result.stdout.split(/\r?\n/).filter(Boolean)
-    : []
+  const output = readArchive(filePath, '', 'utf8', 4 * 1024 * 1024)
+  return output ? output.split(/\r?\n/).filter(Boolean) : []
 }
 
 function xmlAttribute(xml, tag, attribute) {
@@ -312,6 +324,7 @@ async function main() {
   }
   const limitArg = args.find((arg) => arg.startsWith('--preview-limit-kb='))
   const previousArg = args.find((arg) => arg.startsWith('--previous='))
+  const verifyHashes = args.includes('--verify-hashes')
   const previewLimitKb = limitArg ? Number(limitArg.split('=')[1]) : DEFAULT_PREVIEW_LIMIT / 1024
   if (!Number.isFinite(previewLimitKb) || previewLimitKb < 0) {
     throw new Error('Preview limit must be a positive number of KB.')
@@ -344,7 +357,11 @@ async function main() {
     const stat = await fs.stat(program.filePath)
     const modifiedAt = stat.mtime.toISOString()
     const previous = previousPrograms.get(program.filePath)
-    if (previous && previous.sizeBytes === stat.size && previous.modifiedAt === modifiedAt) {
+    const reusable = previous
+      && previous.sizeBytes === stat.size
+      && previous.modifiedAt === modifiedAt
+      && (!verifyHashes || (previous.sha256 && previous.sha256 === await hashFile(program.filePath)))
+    if (reusable) {
       records.push(previous)
       const previousPreviews = previous.previews?.length ? previous.previews : [previous.preview].filter(Boolean)
       for (const preview of previousPreviews) {

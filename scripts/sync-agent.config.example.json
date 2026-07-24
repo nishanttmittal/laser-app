@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "machine": "Laser-250811133266",
+  "sourceRoot": "D:\\",
+  "workRoot": "C:\\ProgramData\\UNICO\\LaserProgramSync",
+  "nodePath": "node.exe",
+  "previewLimitKb": 350,
+  "retainRuns": 20,
+  "handoff": {
+    "mode": "none",
+    "path": ""
+  }
+}

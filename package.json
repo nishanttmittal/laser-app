@@ -10,8 +10,9 @@
     "predeploy": "vite build",
     "deploy": "gh-pages -d dist --dotfiles --nojekyll",
     "machine:manifest": "node scripts/build-machine-manifest.mjs",
-    "test": "node --test src/lib/*.test.js",
-    "lint": "eslint src"
+    "machine:sync": "node scripts/sync-machine-manifest.mjs",
+    "test": "node --test src/lib/*.test.js scripts/*.test.mjs",
+    "lint": "eslint src scripts/*.mjs"
   },
   "dependencies": {
     "firebase": "^11.0.0",

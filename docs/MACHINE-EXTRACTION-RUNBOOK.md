@@ -80,3 +80,20 @@ follow a unique `.zx`/`.zzx` API-to-machine bridge. They never cross an ambiguou
 The first factory manifest remains device-local. Any later cloud synchronization of machine
 metadata or previews needs a separate Claude-reviewed schema/rules phase. No production migration
 is part of this implementation.
+
+## Automatic Incremental Agent
+
+The additive sync coordinator in `scripts/sync-machine-manifest.mjs` automates the incremental
+command without changing this promotion boundary. It provides:
+
+- one-run locking so scheduled scans cannot overlap;
+- reuse of the current successful manifest;
+- added, changed, removed, and unchanged counts;
+- an offline outbox containing changed manifests only;
+- optional delivery to a private synchronized folder;
+- atomic latest-manifest and status files;
+- a Windows Task Scheduler runner with limited privileges.
+
+Installation and verification are documented in `docs/AUTOMATIC-MACHINE-SYNC.md`. Keep folder
+handoff disabled until the first factory run has been reconciled against the current 177-program
+baseline.

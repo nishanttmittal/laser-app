@@ -669,11 +669,15 @@ function Parts({ jobs, days, cfg, role }) {
   }, [jobs, manifest])
   const visualCards = useMemo(() => cards.map((card) => {
     const option = machineOptions.get(normFile(card.fileName))
-    const previews = programPreviews(option)
+    const machineAmbiguous = Boolean(option?.machineCandidates?.length)
+    const previews = machineAmbiguous ? [] : programPreviews(option)
+    const machine = option?.machine || null
     return {
       ...card,
       machinePreview: previews[0]?.dataUrl || '',
-      machineAmbiguous: Boolean(option?.machineCandidates?.length),
+      machineDetails: machine?.details || null,
+      machineMatched: Boolean(machine),
+      machineAmbiguous,
     }
   }), [cards, machineOptions])
 
@@ -711,6 +715,8 @@ function Parts({ jobs, days, cfg, role }) {
     return visualCards.filter((c) => (c.label + ' ' + c.sizeKey + ' ' + c.section).toLowerCase().includes(t))
   }, [visualCards, q])
   const matchedCount = visualCards.filter((card) => card.machinePreview).length
+  const profileOnlyCount = visualCards.filter((card) =>
+    card.machineMatched && !card.machinePreview).length
 
   return (
     <div>
@@ -721,7 +727,7 @@ function Parts({ jobs, days, cfg, role }) {
             ? `${fmt(matchedCount)} of ${fmt(visualCards.length)} parts have an exact machine drawing`
             : 'Machine drawings are not loaded on this browser'}</strong>
           <span>{manifest
-            ? `${fmt(manifest.programs.length)} programs available · imported once and kept on this device`
+            ? `${fmt(manifest.programs.length)} programs available · ${fmt(profileOnlyCount)} exact ${profileOnlyCount === 1 ? 'package has' : 'packages have'} profile data only`
             : 'Import the extracted machine manifest once to show drawings beside production quantities'}</span>
           {manifestMsg && <span className={`manifest-message${manifestMsg.startsWith('Could not') ? ' error' : ''}`}>{manifestMsg}</span>}
         </div>
@@ -761,13 +767,20 @@ function Parts({ jobs, days, cfg, role }) {
                 <div className="partvisuals">
                   {c.catPhoto && <img className="jobthumb" src={c.catPhoto} alt={`${c.label} product`} />}
                   {c.machinePreview && <img className="jobthumb machinepreview" src={c.machinePreview} alt={`${c.fileName} cutting drawing`} />}
-                  {!c.catPhoto && !c.machinePreview && <TubeIcon section={c.section || c.sizeKey} />}
+                  {!c.catPhoto && !c.machinePreview && (
+                    c.machineDetails
+                      ? <TubeProfileVisual details={c.machineDetails} />
+                      : <TubeIcon section={c.section || c.sizeKey} />
+                  )}
                 </div>
                 <span className={'chip' + (c.hasSize ? '' : ' warn')}>{c.label}</span>
                 <span className="jobcard-when">×{fmt(c.pieces)}</span>
               </div>
               <div className="jobcard-sub">{lengthStr}{thkStr}{c.runs > 1 ? ` · (${c.runs} runs)` : ''}</div>
               {c.machinePreview && <div className="part-match">Exact machine drawing · {c.fileName}</div>}
+              {c.machineMatched && !c.machinePreview && (
+                <div className="part-match profile-only">Exact machine package · profile only (thumbnail missing) · {c.fileName}</div>
+              )}
               {c.machineAmbiguous && <div className="part-match ambiguous">Drawing hidden: filename collision</div>}
               <div className="jobcard-stats">
                 <div><b>{c.totalMin.toFixed(1)}</b><span>min</span></div>
