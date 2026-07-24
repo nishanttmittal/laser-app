@@ -5,6 +5,7 @@ const baseName = (p) => (p ? String(p).split(/[\\/]/).pop() : '')
 
 // Label fallback chain (81 % of runs have blank portionName / parts names).
 function cardLabel(j) {
+  if (j.catName && j.catName.trim()) return j.catName.trim()
   if (j.portionName && j.portionName.trim()) return j.portionName.trim()
   const pn = j.parts && j.parts[0] && j.parts[0].name && j.parts[0].name.trim()
   if (pn) return pn

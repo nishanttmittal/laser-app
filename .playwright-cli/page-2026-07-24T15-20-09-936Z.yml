@@ -1,0 +1,55 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - heading "Visual job library" [level=2] [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - strong [ref=e8]: "0"
+        - generic [ref=e9]: cutting files
+      - generic [ref=e10]:
+        - strong [ref=e11]: "0"
+        - generic [ref=e12]: matched geometry
+      - generic [ref=e13]:
+        - strong [ref=e14]: "0"
+        - generic [ref=e15]: product photos
+      - generic [ref=e16]:
+        - strong [ref=e17]: "0"
+        - generic [ref=e18]: profile only
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - strong [ref=e21]: Machine manifest not imported
+        - generic [ref=e22]: Device-local staging; nothing is uploaded
+      - generic [ref=e23] [cursor=pointer]:
+        - text: Import manifest
+        - button "Import manifest"
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - text: Job name
+        - textbox "Job name" [ref=e26]:
+          - /placeholder: e.g. Varun table leg
+      - generic [ref=e27]:
+        - text: Product photo
+        - button "Product photo" [ref=e28]
+    - generic [ref=e29]:
+      - generic [ref=e30]: 0 machine programs
+      - group "Program image filter" [ref=e32]:
+        - button "Machine 0" [pressed] [ref=e33] [cursor=pointer]:
+          - generic [ref=e34]: Machine
+          - generic [ref=e35]: "0"
+        - button "Product 0" [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]: Product
+          - generic [ref=e38]: "0"
+        - button "Geometry 0" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Geometry
+          - generic [ref=e41]: "0"
+        - button "Profile 0" [ref=e42] [cursor=pointer]:
+          - generic [ref=e43]: Profile
+          - generic [ref=e44]: "0"
+        - button "History 0" [ref=e45] [cursor=pointer]:
+          - generic [ref=e46]: History
+          - generic [ref=e47]: "0"
+      - textbox "Search filename, size, or product name" [ref=e48]
+      - generic [ref=e49]: No cutting programs are available yet.
+    - button "Link photo to program" [disabled] [ref=e51]
+    - heading "Saved visual jobs (0)" [level=2] [ref=e52]
+    - textbox "Search saved name, program, or size" [ref=e53]
+    - generic [ref=e54]: Loading…

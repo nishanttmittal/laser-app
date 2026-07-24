@@ -23,25 +23,29 @@ function compressImage(file, maxDim = 600, quality = 0.6) {
   })
 }
 import { rupee, fmt, prettyYmd, whenStr } from './lib/format.js'
-import { ymd, lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
+import { lastCompleteDay, periodRange, filterDaysByRange, monthRollup } from './lib/period.js'
 import { kWhCost } from './lib/energy.js'
-import { enrichJobs, groupBySize, unlabelledFiles, sizeOptions } from './lib/sizemap.js'
-import { cutoffYmd } from './lib/jobcache.js'
-import { buildCatalogIndex, tagJobs, sizeCatalog } from './lib/catalog.js'
+import { enrichJobs, groupBySize, unlabelledFiles } from './lib/sizemap.js'
+import { buildCatalogIndex, normFile, tagJobs, sizeCatalog, programOptions } from './lib/catalog.js'
+import {
+  filterProgramOptions,
+  mergeMachineManifest,
+  parseMachineManifest,
+  programImageKind,
+  programMachines,
+  programPreviews,
+} from './lib/machineManifest.js'
+import { loadMachineManifest, saveMachineManifest } from './lib/machineManifestStore.js'
 import { periodUtil, stateLabel } from './lib/util.js'
 import { monthlyCost, quoteJob, whatIf, monthlyMargins, tubeWeightGrams } from './lib/costing.js'
 import { periodReport } from './lib/reportData.js'
 import { buildPeriodPDF } from './lib/pdf.js'
 import { buildParts, daysWithJobs } from './lib/partsView.js'
+import { BUSINESS_TIME_ZONE, businessDateKey, businessYmd, calendarDayDiff, displayStartTime } from './lib/time.js'
+import Quote from './tabs/Quote.jsx'
 
 /* ---------- helpers ---------- */
 const useMonthly = (days, jobs, cfg) => useMemo(() => monthlyCost(days, cfg, jobs), [days, jobs, cfg])
-
-function piecesByDay(jobs) {
-  const m = {}
-  for (const j of jobs || []) m[j.day] = (m[j.day] || 0) + (j.partAmount || 0)
-  return m
-}
 
 /* ---------- small UI ---------- */
 // Beam power-gauge — utilization shown as a radial machine readout (the signature element).
@@ -69,7 +73,7 @@ const Card = ({ title, value, sub, accent }) => (
 /* ---------- tabs ---------- */
 function Dashboard({ days, cfg, mo, meta }) {
   if (!days.length) return <Empty />
-  const todayY = ymd(new Date())
+  const todayY = businessYmd()
   const headline = lastCompleteDay(days, todayY) || days[days.length - 1]
   const today = days.find((d) => d.statDate === todayY)
   const last14 = days.slice(-14)
@@ -169,7 +173,10 @@ function Jobs({ jobs }) {
   const [q, setQ] = useState('')
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return (jobs || []).filter((j) => !t || (j.sizeKey + ' ' + j.file + ' ' + (j.catName || '') + ' ' + j.startTime + ' ' + whenStr(j.startTime)).toLowerCase().includes(t)).slice(0, 300)
+    return (jobs || []).filter((j) => {
+      const shownTime = displayStartTime(j)
+      return !t || (j.sizeKey + ' ' + j.file + ' ' + (j.catName || '') + ' ' + j.startTime + ' ' + shownTime + ' ' + whenStr(shownTime)).toLowerCase().includes(t)
+    }).slice(0, 300)
   }, [jobs, q])
   return (
     <div>
@@ -181,7 +188,7 @@ function Jobs({ jobs }) {
             <div className="jobcard-head">
               {j.catPhoto && <img className="jobthumb" src={j.catPhoto} alt="" />}
               <span className={'chip' + (j.hasSize ? '' : ' warn')}>{j.catName || j.sizeKey}</span>
-              <span className="jobcard-when">{whenStr(j.startTime)}</span>
+              <span className="jobcard-when">{whenStr(displayStartTime(j))} IST</span>
             </div>
             {j.catName && <div className="jobcard-sub">{j.sizeKey} · {j.file}</div>}
             <div className="jobcard-stats">
@@ -260,7 +267,7 @@ function Costing({ jobs, cfg, mo }) {
     // customer-facing ONLY — never include cost or margin
     const text = [
       'UNICO Metal Products — Laser Cutting Quote',
-      new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      new Date().toLocaleDateString('en-IN', { timeZone: BUSINESS_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' }),
       '',
       `Item: ${sizeKey}`,
       `Quantity: ${fmt(qty)} pcs`,
@@ -346,10 +353,9 @@ function Costing({ jobs, cfg, mo }) {
 function Reports({ days, jobs, cfg, mo }) {
   const charge = cfg.chargePerMin || 40
   const rate = cfg.electricityRate || 14
-  const iso = (d) => d.toISOString().slice(0, 10)
-  const now = new Date()
-  const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1))) // 1st of this month
-  const [to, setTo] = useState(() => iso(now))
+  const todayIso = businessDateKey()
+  const [from, setFrom] = useState(() => `${todayIso.slice(0, 7)}-01`) // 1st of this IST month
+  const [to, setTo] = useState(() => todayIso)
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const fromN = +from.replace(/-/g, ''), toN = +to.replace(/-/g, '')
@@ -387,7 +393,7 @@ function Reports({ days, jobs, cfg, mo }) {
       <div className="quote">
         <div className="rangerow">
           <label>From<input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
-          <label>To<input type="date" value={to} max={iso(now)} onChange={(e) => setTo(e.target.value)} /></label>
+          <label>To<input type="date" value={to} max={todayIso} onChange={(e) => setTo(e.target.value)} /></label>
         </div>
       </div>
       <div className="pdfrow">
@@ -470,7 +476,7 @@ function DayDetail({ days, jobs, cfg }) {
               <div className="tr sz4" key={j.workUuid}>
                 <span className={'szcell' + (j.hasSize ? '' : ' isname')}>{j.sizeKey}</span>
                 <span>{fmt(j.partAmount)}</span><span>{((j.timeTaken || 0) / 60).toFixed(1)}</span>
-                <span>{(j.startTime || '').slice(11, 16)}</span>
+                <span>{whenStr(displayStartTime(j))}</span>
               </div>
             ))}
           </div>
@@ -522,8 +528,7 @@ function FreshnessBanner({ days }) {
   const dd = (days || []).filter((d) => d.statDate)
   if (!dd.length) return null
   const latest = String(dd.reduce((a, d) => Math.max(a, +d.statDate), 0))
-  const y = +latest.slice(0, 4), m = +latest.slice(4, 6) - 1, day = +latest.slice(6, 8)
-  const daysAgo = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(y, m, day).getTime()) / 864e5)
+  const daysAgo = calendarDayDiff(latest, businessYmd())
   // Sync runs nightly for the previous day, so "1 day ago" is normal/current.
   const stale = daysAgo >= 2
   return (
@@ -879,11 +884,11 @@ function Rates({ cfg, onSaved, userEmail }) {
   )
 }
 function Admin({ meta, days, jobs, cfg, userEmail, onSaved, onCatalogSaved, onRatesSaved }) {
-  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} userEmail={userEmail} /><Sep /><MeterEntry /><Sep /><JobCatalog onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} userEmail={userEmail} /><Sep /><MeterEntry /><Sep /><JobCatalog jobs={jobs} onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
 }
 
 /* ---------- shell ---------- */
-const TABS = ['Parts', 'Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
+const TABS = ['Quote', 'Parts', 'Library', 'Dashboard', 'Utilization', 'Production', 'Costing', 'Reports', 'Admin']
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['lastMonth', 'Last month'], ['all', 'All']]
 // Real UNICO logo (maroon-on-white) in a white badge — replaces the old text wordmark. base-aware.
 const LOGO = import.meta.env.BASE_URL + 'unico-logo.png'
@@ -912,7 +917,7 @@ function Unauthorized({ email }) {
 }
 
 function MeterEntry() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(() => businessDateKey())
   const [a, setA] = useState('')
   const [b, setB] = useState('')
   const [note, setNote] = useState('')
@@ -933,7 +938,7 @@ function MeterEntry() {
       <div className="note">Enter today's two meter totals (the full number on each meter).</div>
       <div className="quote">
         <label>Date
-          <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+          <input type="date" value={date} max={businessDateKey()} onChange={(e) => setDate(e.target.value)} />
         </label>
         <label>Meter 1 — machine + UPS + dust collector
           <input type="number" inputMode="decimal" value={a} placeholder="e.g. 2101" onChange={(e) => setA(e.target.value)} />
@@ -951,81 +956,346 @@ function MeterEntry() {
   )
 }
 
-function JobCatalog({ onSaved }) {
+function TubeProfileVisual({ details = {}, large = false }) {
+  const section = String(details.section || '').toLowerCase()
+  const shape = section.includes('circle') || section.includes('round')
+    ? 'circle'
+    : section.includes('rect')
+      ? 'rect'
+      : section.includes('square')
+        ? 'square'
+        : 'shaped'
+  const label = `${details.section || 'Tube'} profile`
+  return (
+    <span className={`tube-profile ${shape}${large ? ' large' : ''}`} role="img" aria-label={label}>
+      <i />
+    </span>
+  )
+}
+
+export function JobCatalog({ jobs: suppliedJobs = null, catalog: suppliedCatalog = null, onSaved }) {
   const [list, setList] = useState(null)
-  const [opts, setOpts] = useState([]) // [{ sizeKey, pieces, lastDay }] newest-cut first
-  const [q, setQ] = useState('')       // search saved cards
-  const [szq, setSzq] = useState('')   // search all sizes (picker)
-  const [name, setName] = useState(''); const [photo, setPhoto] = useState(''); const [sizeKey, setSizeKey] = useState('')
-  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('')
-  const load = () => loadCatalog().then(setList).catch(() => setList([]))
+  const [opts, setOpts] = useState([])
+  const [historyOpts, setHistoryOpts] = useState([])
+  const [manifest, setManifest] = useState(null)
+  const [q, setQ] = useState('')
+  const [programQ, setProgramQ] = useState('')
+  const [programFilter, setProgramFilter] = useState('machine')
+  const [visiblePrograms, setVisiblePrograms] = useState(40)
+  const [id, setId] = useState('')
+  const [name, setName] = useState('')
+  const [photo, setPhoto] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [sizeKey, setSizeKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const load = async () => {
+    const catalog = suppliedCatalog || await loadCatalog().catch(() => [])
+    try {
+      let sourceJobs = suppliedJobs
+      if (!sourceJobs) {
+        const [rawJobs, map] = await Promise.all([loadJobs(), loadSizeMap()])
+        sourceJobs = enrichJobs(rawJobs || [], map)
+      }
+      const localManifest = await loadMachineManifest().catch(() => null)
+      const history = programOptions(sourceJobs || [], catalog)
+      setList(catalog)
+      setHistoryOpts(history)
+      setManifest(localManifest)
+      setOpts(mergeMachineManifest(history, localManifest, catalog))
+    } catch {
+      setList(catalog)
+      setOpts([])
+    }
+  }
   useEffect(() => {
     load()
-    // Size options from real cutting data (same derivation as the By-size view), so a photo
-    // links to a size staff recognise. Newest-cut sizes are surfaced first.
-    Promise.all([loadJobs(), loadSizeMap()])
-      .then(([jobs, map]) => setOpts(sizeOptions(enrichJobs(jobs || [], map))))
-      .catch(() => setOpts([]))
-  }, [])
-  const onPhoto = async (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; try { setPhoto(await compressImage(f)) } catch { setMsg('Could not read that photo.') } }
+    // suppliedJobs is stable in the owner shell; staff use the existing cached loader.
+  }, [suppliedJobs, suppliedCatalog])
+  useEffect(() => {
+    setVisiblePrograms(40)
+  }, [programFilter, programQ])
+
+  const onPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    try { setPhoto(await compressImage(file)) }
+    catch { setMsg('Could not read that photo.') }
+  }
+  const onManifest = async (e) => {
+    const file = e.target.files && e.target.files[0]
+    if (!file) return
+    setBusy(true); setMsg('')
+    try {
+      const next = parseMachineManifest(await file.text())
+      await saveMachineManifest(next)
+      setManifest(next)
+      setOpts(mergeMachineManifest(historyOpts, next, list || suppliedCatalog || []))
+      setMsg(`✓ Imported ${fmt(next.programs.length)} machine programs on this device.`)
+    } catch (error) {
+      setMsg(`Could not import: ${error.message}`)
+    } finally {
+      setBusy(false)
+      e.target.value = ''
+    }
+  }
+  const clear = () => {
+    setId(''); setName(''); setPhoto(''); setFileName(''); setSizeKey(''); setProgramQ('')
+  }
+  const optionMatchesFile = (option, value) => {
+    const key = normFile(value)
+    return normFile(option?.fileName) === key
+      || programMachines(option).some((machine) => normFile(machine.fileName) === key)
+  }
+  const selectProgram = (option) => {
+    setFileName(option.machine?.fileName || option.fileName)
+    setSizeKey(option.sizeKey || '')
+    setMsg(option.machineCandidates?.length
+      ? `${option.machineCandidates.length} different machine files use this filename. Rename one on the machine before linking a product photo.`
+      : '')
+    if (option.linkedId) {
+      const linked = (list || []).find((item) => item.id === option.linkedId)
+      if (linked) {
+        setId(linked.id)
+        setName(linked.name || '')
+        setPhoto(linked.photo || '')
+      }
+    } else {
+      if (id) { setName(''); setPhoto('') }
+      setId('')
+    }
+  }
+  const edit = (item) => {
+    setId(item.id || '')
+    setName(item.name || '')
+    setPhoto(item.photo || '')
+    setFileName(item.fileName || '')
+    setSizeKey(item.sizeKey || '')
+    setProgramQ(item.fileName || '')
+    setMsg(item.fileName ? 'Editing exact program link.' : 'Choose the exact machine program to upgrade this size-only card.')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   const save = async () => {
     if (!name.trim()) { setMsg('Give the job a name.'); return }
-    // A card with no size links to nothing (buildCatalogIndex skips it) and never shows anywhere,
-    // and a photo is the whole point of the catalog — so require both before saving.
-    if (!sizeKey) { setMsg('Tap the size you just cut.'); return }
-    if (!photo) { setMsg('Take a photo of the job first.'); return }
+    if (!fileName) { setMsg('Select the exact machine program for this product.'); return }
+    if (!photo) { setMsg('Take or choose a product photo first.'); return }
+    const selectedOption = opts.find((option) => optionMatchesFile(option, fileName))
+    if (selectedOption?.machineCandidates?.length) {
+      setMsg('This filename belongs to different machine files. Rename one on the machine before linking a photo.')
+      return
+    }
     setBusy(true); setMsg('')
-    try { await saveCatalogJob({ name, photo, sizeKey }); setName(''); setPhoto(''); setSizeKey(''); setSzq(''); setMsg('✓ Saved'); await load(); onSaved && onSaved() }
-    catch (e) { setMsg('Could not save: ' + e.message) }
+    try {
+      const exactMachineFile = selectedOption?.machine?.fileName || fileName
+      await saveCatalogJob({ id, name, photo, sizeKey, fileName: exactMachineFile, matchMode: 'file' })
+      clear()
+      setMsg('✓ Photo linked to the exact machine program.')
+      await load()
+      onSaved && onSaved()
+    } catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
-  const rows = (list || []).filter((j) => !q || (`${j.name} ${j.sizeKey || j.fileName || ''}`).toLowerCase().includes(q.toLowerCase()))
-  // Picker: when searching, show all matches; otherwise just sizes cut in the last 7 days
-  // (fall back to the 8 most-recent/biggest if nothing was cut recently). Big tap buttons.
-  const recentCut = cutoffYmd(new Date(), 7)
-  const recent = opts.filter((o) => o.lastDay >= recentCut)
-  const picker = szq
-    ? opts.filter((o) => o.sizeKey.toLowerCase().includes(szq.toLowerCase()))
-    : (recent.length ? recent : opts.slice(0, 8))
+
+  const rows = (list || []).filter((item) =>
+    !q || `${item.name} ${item.sizeKey || ''} ${item.fileName || ''}`.toLowerCase().includes(q.toLowerCase()))
+  const search = programQ.trim().toLowerCase()
+  const machineOptions = filterProgramOptions(opts, 'machine')
+  const filteredOptions = filterProgramOptions(opts, programFilter)
+  const matchingOptions = search
+    ? filteredOptions.filter((option) =>
+      `${option.fileName} ${option.machine?.fileName || ''} ${option.sizeKey} ${option.linkedName}`.toLowerCase().includes(search))
+    : filteredOptions
+  const picker = matchingOptions.slice(0, visiblePrograms)
+  const linkedCount = machineOptions.filter((option) => option.linkedId).length
+  const embeddedCount = (manifest?.programs || []).filter((program) =>
+    program.previews?.some((preview) => preview.dataUrl) || program.preview?.dataUrl).length
+  const profileOnlyCount = Math.max(0, (manifest?.programs?.length || 0) - embeddedCount)
+  const ambiguousCount = filterProgramOptions(opts, 'ambiguous').length
+  const filterTabs = [
+    { id: 'machine', label: 'Machine', count: machineOptions.length },
+    { id: 'product', label: 'Product', count: filterProgramOptions(opts, 'product').length },
+    { id: 'geometry', label: 'Geometry', count: filterProgramOptions(opts, 'geometry').length },
+    { id: 'profile', label: 'Profile', count: filterProgramOptions(opts, 'profile').length },
+    ...(ambiguousCount ? [{ id: 'ambiguous', label: 'Ambiguous', count: ambiguousCount }] : []),
+    { id: 'history', label: 'History', count: filterProgramOptions(opts, 'history').length },
+  ]
+  const selected = opts.find((option) => optionMatchesFile(option, fileName))
+  const selectedMachines = programMachines(selected)
+  const selectedMachine = selectedMachines[0] || null
+  const selectedPreviews = programPreviews(selected)
+  const selectedPreview = selectedPreviews[0]?.dataUrl || ''
+  const visiblePreviews = selectedPreviews.slice(0, 12)
+  const ambiguousSelection = Boolean(selected?.machineCandidates?.length)
+  const selectedDetails = selected?.machine?.details || {}
+  const showNumber = (value, suffix = '') => value == null || !Number.isFinite(Number(value))
+    ? '-'
+    : `${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}${suffix}`
+
   return (
     <div>
-      <h2>Job catalog</h2>
-      <div className="note">Photograph the job, name it, and tap the size you just cut. The photo then shows against that size across the app.</div>
+      <h2>Visual job library</h2>
+      <div className="library-summary">
+        <div><strong>{fmt(manifest?.programs?.length || machineOptions.length)}</strong><span>cutting files</span></div>
+        <div><strong>{fmt(embeddedCount)}</strong><span>matched geometry</span></div>
+        <div><strong>{fmt(linkedCount)}</strong><span>product photos</span></div>
+        <div><strong>{fmt(profileOnlyCount)}</strong><span>profile only</span></div>
+      </div>
+      <div className="manifestbar">
+        <div>
+          <strong>{manifest ? `${fmt(manifest.programs.length)} programs imported` : 'Machine manifest not imported'}</strong>
+          <span>{manifest?.generatedAt
+            ? `Generated ${manifest.generatedAt.replace('T', ' ').slice(0, 16)} · ${fmt(manifest.inventory?.previewsEmbedded || 0)} views · ${fmt(embeddedCount)} files with exact geometry`
+            : 'Device-local staging; nothing is uploaded'}</span>
+        </div>
+        <label className="btn secondary compact">
+          Import manifest
+          <input type="file" accept="application/json,.json" onChange={onManifest} disabled={busy} />
+        </label>
+      </div>
       <div className="quote">
         <label>Job name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Varun table leg" /></label>
-        <label>Photo<input type="file" accept="image/*" capture="environment" onChange={onPhoto} /></label>
+        <label>Product photo<input type="file" accept="image/*" capture="environment" onChange={onPhoto} /></label>
         {photo && <img src={photo} alt="" className="catimg" />}
       </div>
-      <div className="szpickwrap">
-        <div className="szpickhead">
-          <span>{szq ? 'Matching sizes' : 'Recently cut — tap one'}</span>
-          {sizeKey && <span className="szpicked">✓ {sizeKey}</span>}
+      <div className="programwrap">
+        <div className="programhead">
+          <span>{fmt(matchingOptions.length)} {programFilter === 'history' ? 'history programs' : 'machine programs'}</span>
+          {fileName && <button type="button" className="textbtn" onClick={() => { setFileName(''); setSizeKey('') }}>Clear selection</button>}
         </div>
-        <input className="search" placeholder="Search all sizes…" value={szq} onChange={(e) => setSzq(e.target.value)} />
-        <div className="szpick">
-          {picker.map((o) => (
-            <button type="button" key={o.sizeKey}
-              className={'szbtn' + (o.sizeKey === sizeKey ? ' on' : '')}
-              onClick={() => setSizeKey(o.sizeKey === sizeKey ? '' : o.sizeKey)}>
-              <span className="szbtn-k">{o.sizeKey}</span>
-              <span className="szbtn-m">{fmt(o.pieces)} pcs · {prettyYmd(o.lastDay)}</span>
+        <div className="programfilters" role="group" aria-label="Program image filter">
+          {filterTabs.map((filter) => (
+            <button type="button" key={filter.id} className={programFilter === filter.id ? 'on' : ''}
+              aria-pressed={programFilter === filter.id} onClick={() => setProgramFilter(filter.id)}>
+              <span>{filter.label}</span><b>{fmt(filter.count)}</b>
             </button>
           ))}
-          {!picker.length && <div className="note">{opts.length ? 'No size matches — try a shorter search.' : 'No cutting data yet.'}</div>}
         </div>
+        <input className="search" placeholder="Search filename, size, or product name" value={programQ} onChange={(e) => setProgramQ(e.target.value)} />
+        <div className="programpick">
+          {picker.map((option) => {
+            const machines = programMachines(option)
+            const previews = programPreviews(option)
+            const preview = option.linkedPhoto || previews[0]?.dataUrl || ''
+            const imageKind = programImageKind(option)
+            const isSelected = optionMatchesFile(option, fileName)
+            return (
+              <button type="button" key={option.key}
+                className={'programbtn' + (isSelected ? ' on' : '') + (option.linkedId ? ' linked' : '') + (preview || machines.length ? ' hasvisual' : '')}
+                onClick={() => selectProgram(option)}>
+                {preview
+                  ? <img src={preview} alt={option.linkedPhoto ? option.linkedName || option.fileName : `${option.fileName} cutting geometry`}
+                    className={option.linkedPhoto ? '' : 'machinepreview'} />
+                  : machines.length
+                    ? <TubeProfileVisual details={machines[0].details} />
+                    : null}
+                <span className="programcopy">
+                  <strong>{option.linkedName || option.fileName}</strong>
+                  {option.linkedName && <small>{option.machine?.fileName || option.fileName}</small>}
+                  <small>{option.sizeKey || option.machine?.details?.section || 'Unlabelled'} · {fmt(option.pieces)} pcs · {option.lastDay ? prettyYmd(option.lastDay) : 'not in run history'}</small>
+                </span>
+                <span className="programstate">{option.machineCandidates?.length
+                  ? 'Ambiguous'
+                  : imageKind === 'product' ? 'Product'
+                    : imageKind === 'geometry' ? 'Geometry'
+                      : imageKind === 'profile' ? 'Profile'
+                        : 'History'}</span>
+              </button>
+            )
+          })}
+          {!picker.length && <div className="note">{opts.length ? 'No program matches that search.' : 'No cutting programs are available yet.'}</div>}
+        </div>
+        {picker.length < matchingOptions.length && (
+          <button type="button" className="btn secondary compact programmore"
+            onClick={() => setVisiblePrograms((count) => count + 40)}>
+            Show {fmt(Math.min(40, matchingOptions.length - picker.length))} more
+          </button>
+        )}
       </div>
-      <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save job'}</button>
-      {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
-      <input className="search" placeholder="Search saved jobs" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginTop: 14 }} />
-      <div className="catgrid">
-        {rows.map((j) => (
-          <div className="catcard" key={j.id}>
-            {j.photo ? <img src={j.photo} alt={j.name} /> : <div className="catnoimg">no photo</div>}
-            <div className="catname">{j.name}</div>
-            {(j.sizeKey || j.fileName) && <div className="catfile">{j.sizeKey || j.fileName}</div>}
+      {fileName && (
+        <div className="program-detail">
+          <div className="selected-program">
+            <span>Selected program</span><strong>{selectedMachine?.fileName || fileName}</strong>
+            <small>{sizeKey || selectedDetails.section || 'Unlabelled size'}</small>
           </div>
-        ))}
-        {list && !rows.length && <div className="note">No jobs saved yet — add the first one above.</div>}
+          {(photo || selectedPreview || selectedMachines.length > 0) && (
+            <div className="program-images">
+              {photo && <figure><img src={photo} alt="" /><figcaption>Product photo</figcaption></figure>}
+              {visiblePreviews.map((preview, index) => {
+                const variantViews = selectedPreviews.filter((item) => item.machineIndex === preview.machineIndex)
+                const variantIndex = variantViews.indexOf(preview) + 1
+                return (
+                  <figure key={`${preview.machineIndex}-${preview.sha256 || preview.sourcePath || index}`}>
+                    <img src={preview.dataUrl} alt={`${selectedMachine?.fileName || fileName} cutting geometry`} className="machinepreview" />
+                    <figcaption>{selectedMachines.length > 1
+                      ? `Variant ${preview.machineIndex + 1} · view ${variantIndex} of ${variantViews.length}`
+                      : `Machine view ${index + 1} of ${selectedPreviews.length}`}</figcaption>
+                  </figure>
+                )
+              })}
+              {!selectedPreviews.length && selectedMachines.map((machine, index) => (
+                <figure key={machine.sha256 || machine.sourcePath || index}>
+                  <TubeProfileVisual details={machine.details} large />
+                  <figcaption>{selectedMachines.length > 1 ? `Variant ${index + 1} · profile only` : 'Machine profile only'}</figcaption>
+                </figure>
+              ))}
+              {selectedPreviews.length > visiblePreviews.length && (
+                <div className="preview-more">+{fmt(selectedPreviews.length - visiblePreviews.length)} more geometry views in the manifest</div>
+              )}
+            </div>
+          )}
+          <div className="program-metrics">
+            <div><span>Observed speed</span><strong>{showNumber(selected?.secPerPiece, ' sec/pc')}</strong></div>
+            <div><span>Historical output</span><strong>{selected ? `${fmt(selected.pieces)} pcs` : '-'}</strong></div>
+            <div><span>Runs</span><strong>{selected ? fmt(selected.runs) : '-'}</strong></div>
+            <div><span>Pierces</span><strong>{selected ? fmt(selected.pierces) : '-'}</strong></div>
+            <div><span>Tube length</span><strong>{showNumber(selectedDetails.tubeLength ?? selected?.tubeLength, ' mm')}</strong></div>
+            <div><span>Thickness</span><strong>{showNumber(selectedDetails.thickness ?? selected?.thickness, ' mm')}</strong></div>
+            <div><span>Part length</span><strong>{showNumber(selectedDetails.partLength, ' mm')}</strong></div>
+            <div><span>Last cut</span><strong>{selected?.lastDay ? prettyYmd(selected.lastDay) : '-'}</strong></div>
+            <div><span>Nested parts</span><strong>{showNumber(selectedDetails.quantity)}</strong></div>
+            <div><span>Program saved (IST)</span><strong>{selected?.machine?.savedAtIst ? selected.machine.savedAtIst.slice(0, 16) : '-'}</strong></div>
+          </div>
+          {selectedMachine && !ambiguousSelection && (
+            <div className="machine-evidence">
+              <strong>{selectedMachine.sourceApp}{selectedMachine.sourceVersion ? ` ${selectedMachine.sourceVersion}` : ''}</strong>
+              <span>{selectedPreviews.length
+                ? `${fmt(selectedPreviews.length)} embedded geometry view${selectedPreviews.length === 1 ? '' : 's'}`
+                : 'Profile visual generated from machine metadata'}</span>
+            </div>
+          )}
+          {ambiguousSelection && (
+            <div className="machine-evidence ambiguous">
+              <strong>Filename collision</strong>
+              <span>{fmt(selected.machineCandidates.length)} different machine files have this exact name. Automatic metadata and photo matching are disabled.</span>
+            </div>
+          )}
+        </div>
+      )}
+      <button className="btn wa" disabled={busy || !name.trim() || !photo || !fileName || ambiguousSelection} onClick={save}>{busy ? 'Saving…' : (id ? 'Update photo link' : 'Link photo to program')}</button>
+      {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
+      <h2>Saved visual jobs ({rows.length})</h2>
+      <input className="search" placeholder="Search saved name, program, or size" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="catgrid">
+        {rows.map((item) => {
+          const option = opts.find((candidate) => optionMatchesFile(candidate, item.fileName))
+          const machine = programMachines(option)[0]
+          const cardImage = item.photo || programPreviews(option)[0]?.dataUrl || ''
+          return (
+          <div className="catcard" key={item.id}>
+            {cardImage
+              ? <img src={cardImage} alt={item.name} className={item.photo ? '' : 'machinepreview'} />
+              : machine
+                ? <TubeProfileVisual details={machine.details} large />
+                : <div className="catnoimg">no photo</div>}
+            <div className="catname">{item.name}</div>
+            <div className="catfile">{item.fileName || item.sizeKey || 'Not linked'}</div>
+            {item.sizeKey && item.fileName && <div className="catmeta">{item.sizeKey}</div>}
+            <button type="button" className="catedit" onClick={() => edit(item)}>{item.fileName ? 'Edit link' : 'Choose exact program'}</button>
+          </div>
+          )
+        })}
+        {list && !rows.length && <div className="note">No visual jobs saved yet.</div>}
         {!list && <div className="note">Loading…</div>}
       </div>
     </div>
@@ -1049,7 +1319,7 @@ function StaffMeter({ user }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState('Parts')
+  const [tab, setTab] = useState('Quote')
   const [period, setPeriod] = useState('month')
   const [customDate, setCustomDate] = useState('')
   const [core, setCore] = useState(null)
@@ -1077,6 +1347,15 @@ export default function App() {
   const catIdx = useMemo(() => buildCatalogIndex(catalog), [catalog])
   const mappedJobs = useMemo(() => tagJobs(enrichJobs(jobs || [], sizeMap), catIdx), [jobs, sizeMap, catIdx])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
+  const todayY = businessYmd()
+  const range = useMemo(() => customDate
+    ? { from: +customDate.replace(/-/g, ''), to: +customDate.replace(/-/g, '') }
+    : periodRange(period, todayY), [customDate, period, todayY])
+  const vdays = useMemo(() => filterDaysByRange(core?.days || [], range), [core?.days, range])
+  const vjobs = useMemo(() => mappedJobs.filter((j) => {
+    const d = +j.day
+    return d >= range.from && d <= range.to
+  }), [mappedJobs, range])
 
   if (user === undefined || (user && role === undefined)) return <div className="app"><div className="loader">Loading UNICO Laser…</div></div>
   if (!user) return <Login />
@@ -1088,12 +1367,6 @@ export default function App() {
   const { meta, cfg, days } = core
   const ready = jobs != null
 
-  const todayY = ymd(new Date())
-  const range = customDate
-    ? { from: +customDate.replace(/-/g, ''), to: +customDate.replace(/-/g, '') } // single picked day
-    : periodRange(period, todayY)
-  const vdays = filterDaysByRange(days, range)
-  const vjobs = mappedJobs.filter((j) => { const d = +j.day; return d >= range.from && d <= range.to })
   const showPeriod = ['Dashboard', 'Utilization', 'Production'].includes(tab)
 
   return (
@@ -1113,7 +1386,9 @@ export default function App() {
       )}
       <main>
         <FreshnessBanner days={days} />
+        {tab === 'Quote' && (ready ? <Quote jobs={mappedJobs} cfg={cfg} mo={mo} userEmail={user.email} /> : <Loading />)}
         {tab === 'Parts' && (ready ? <Parts jobs={mappedJobs} days={days} cfg={cfg} role={role} /> : <Loading />)}
+        {tab === 'Library' && (ready ? <JobCatalog jobs={mappedJobs} catalog={catalog} onSaved={() => loadCatalog().then(setCatalog)} /> : <Loading />)}
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}
         {tab === 'Utilization' && <Utilization days={vdays} meta={meta} />}
         {tab === 'Production' && (ready ? <Production jobs={mappedJobs} vjobs={vjobs} cfg={cfg} mo={mo} /> : <Loading />)}

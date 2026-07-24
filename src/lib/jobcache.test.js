@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cutoffYmd, needFullRead, mergeJobs, RECONCILE_DAYS } from './jobcache.js';
+import { cutoffFromYmd, cutoffYmd, needFullRead, mergeJobs, RECONCILE_DAYS } from './jobcache.js';
 
 test('cutoffYmd returns YYYYMMDD string N days back', () => {
   assert.equal(cutoffYmd(new Date(2026, 5, 24), 35), '20260520'); // 24 Jun - 35d = 20 May
   assert.equal(cutoffYmd(new Date(2026, 0, 5), 10), '20251226');  // crosses year boundary
+});
+
+test('cutoffFromYmd is calendar-safe and crosses month/year boundaries', () => {
+  assert.equal(cutoffFromYmd(20260724, 35), '20260619');
+  assert.equal(cutoffFromYmd('2026-01-05', 10), '20251226');
 });
 
 test('needFullRead: true when no cache/meta or no lastFullAt', () => {

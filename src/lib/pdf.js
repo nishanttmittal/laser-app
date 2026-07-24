@@ -1,6 +1,7 @@
 // Renders a periodReport() object into a PDF (jsPDF, lazy-loaded). Kept thin — all the
 // numbers come pre-computed and tested from reportData.js; this only lays them out.
 import { fmt, prettyYmd } from './format.js';
+import { BUSINESS_TIME_ZONE } from './time.js';
 
 // jsPDF's built-in font can't render the ₹ glyph, so use "Rs " in PDFs (matches the nightly report).
 const rupee = (n) => 'Rs ' + Math.round(n || 0).toLocaleString('en-IN');
@@ -36,7 +37,7 @@ export async function buildPeriodPDF(report, { detailed = false } = {}) {
   setInk(INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   doc.text(periodLabel(report), M, y); y += 8;
   setInk(MUT); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`Generated ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`, M, y + 8);
+  doc.text(`Generated ${new Date().toLocaleString('en-IN', { timeZone: BUSINESS_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' })}`, M, y + 8);
   y += 26;
 
   // ---- KPI cards ----

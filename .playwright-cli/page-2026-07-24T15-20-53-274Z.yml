@@ -1,0 +1,134 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - heading "Visual job library" [level=2] [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - strong [ref=e8]: "5"
+        - generic [ref=e9]: cutting files
+      - generic [ref=e10]:
+        - strong [ref=e11]: "4"
+        - generic [ref=e12]: matched geometry
+      - generic [ref=e13]:
+        - strong [ref=e14]: "1"
+        - generic [ref=e15]: product photos
+      - generic [ref=e16]:
+        - strong [ref=e17]: "1"
+        - generic [ref=e18]: profile only
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - strong [ref=e21]: 5 programs imported
+        - generic [ref=e22]: Generated 2026-07-24 14:30 · 4 views · 4 files with exact geometry
+      - generic [ref=e23] [cursor=pointer]:
+        - text: Import manifest
+        - button "Import manifest"
+    - generic [ref=e24]:
+      - generic [ref=e25]:
+        - text: Job name
+        - textbox "Job name" [ref=e26]:
+          - /placeholder: e.g. Varun table leg
+      - generic [ref=e27]:
+        - text: Product photo
+        - button "Product photo" [ref=e28]
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]: 4 machine programs
+        - button "Clear selection" [ref=e96] [cursor=pointer]
+      - group "Program image filter" [ref=e32]:
+        - button "Machine 4" [pressed] [ref=e56] [cursor=pointer]:
+          - generic [ref=e34]: Machine
+          - generic [ref=e35]: "4"
+        - button "Product 1" [ref=e57] [cursor=pointer]:
+          - generic [ref=e37]: Product
+          - generic [ref=e38]: "1"
+        - button "Geometry 2" [ref=e58] [cursor=pointer]:
+          - generic [ref=e40]: Geometry
+          - generic [ref=e41]: "2"
+        - button "Profile 1" [ref=e59] [cursor=pointer]:
+          - generic [ref=e43]: Profile
+          - generic [ref=e44]: "1"
+        - button "Ambiguous 1" [ref=e60] [cursor=pointer]:
+          - generic [ref=e61]: Ambiguous
+          - generic [ref=e62]: "1"
+        - button "History 1" [ref=e63] [cursor=pointer]:
+          - generic [ref=e46]: History
+          - generic [ref=e47]: "1"
+      - textbox "Search filename, size, or product name" [ref=e48]
+      - generic [ref=e49]:
+        - button "Desk connector Desk connector desk-connector.zzx 40x40 t1.2 · 16 pcs · 24-07-2026 Product" [ref=e64] [cursor=pointer]:
+          - img "Desk connector" [ref=e65]
+          - generic [ref=e66]:
+            - strong [ref=e67]: Desk connector
+            - generic [ref=e68]: desk-connector.zzx
+            - generic [ref=e69]: 40x40 t1.2 · 16 pcs · 24-07-2026
+          - generic [ref=e70]: Product
+        - button "handle.zx cutting geometry handle.zx OD31.75 t1.5 · 24 pcs · 23-07-2026 Geometry" [ref=e71] [cursor=pointer]:
+          - img "handle.zx cutting geometry" [ref=e72]
+          - generic [ref=e73]:
+            - strong [ref=e74]: handle.zx
+            - generic [ref=e75]: OD31.75 t1.5 · 24 pcs · 23-07-2026
+          - generic [ref=e76]: Geometry
+        - button "Circle profile profile-only.zzx OD54 t3 · 89 pcs · 22-07-2026 Profile" [ref=e77] [cursor=pointer]:
+          - img "Circle profile" [ref=e78]
+          - generic [ref=e80]:
+            - strong [ref=e81]: profile-only.zzx
+            - generic [ref=e82]: OD54 t3 · 89 pcs · 22-07-2026
+          - generic [ref=e83]: Profile
+        - button "collision.zx cutting geometry collision.zx 40x40 t1.2 · 2 pcs · 21-07-2026 Ambiguous" [active] [ref=e84] [cursor=pointer]:
+          - img "collision.zx cutting geometry" [ref=e85]
+          - generic [ref=e86]:
+            - strong [ref=e87]: collision.zx
+            - generic [ref=e88]: 40x40 t1.2 · 2 pcs · 21-07-2026
+          - generic [ref=e89]: Ambiguous
+    - generic [ref=e97]:
+      - generic [ref=e98]:
+        - generic [ref=e99]: Selected program
+        - strong [ref=e100]: collision.zx
+        - generic [ref=e101]: 40x40 t1.2
+      - generic [ref=e102]:
+        - figure "Variant 1 · view 1" [ref=e103]:
+          - img "collision.zx cutting geometry" [ref=e104]
+        - figure "Variant 2 · view 2" [ref=e106]:
+          - img "collision.zx cutting geometry" [ref=e107]
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - generic [ref=e111]: Observed speed
+          - strong [ref=e112]: 27.5 sec/pc
+        - generic [ref=e113]:
+          - generic [ref=e114]: Historical output
+          - strong [ref=e115]: 2 pcs
+        - generic [ref=e116]:
+          - generic [ref=e117]: Runs
+          - strong [ref=e118]: "1"
+        - generic [ref=e119]:
+          - generic [ref=e120]: Pierces
+          - strong [ref=e121]: "8"
+        - generic [ref=e122]:
+          - generic [ref=e123]: Tube length
+          - strong [ref=e124]: "-"
+        - generic [ref=e125]:
+          - generic [ref=e126]: Thickness
+          - strong [ref=e127]: 1.2 mm
+        - generic [ref=e128]:
+          - generic [ref=e129]: Part length
+          - strong [ref=e130]: "-"
+        - generic [ref=e131]:
+          - generic [ref=e132]: Last cut
+          - strong [ref=e133]: 21-07-2026
+        - generic [ref=e134]:
+          - generic [ref=e135]: Nested parts
+          - strong [ref=e136]: "1"
+        - generic [ref=e137]:
+          - generic [ref=e138]: Program saved (IST)
+          - strong [ref=e139]: "-"
+      - generic [ref=e140]:
+        - strong [ref=e141]: Filename collision
+        - generic [ref=e142]: 2 different machine files have this exact name. Automatic metadata and photo matching are disabled.
+    - button "Link photo to program" [disabled] [ref=e51]
+    - generic [ref=e143]: 2 different machine files use this filename. Rename one on the machine before linking a product photo.
+    - heading "Saved visual jobs (1)" [level=2] [ref=e90]
+    - textbox "Search saved name, program, or size" [ref=e53]
+    - generic [ref=e91]:
+      - img "Desk connector" [ref=e92]
+      - generic [ref=e93]: Desk connector
+      - generic [ref=e94]: desk-connector.zzx
+      - button "Edit link" [ref=e95] [cursor=pointer]

@@ -6,10 +6,17 @@ export const RECONCILE_DAYS = 10;  // owner rule: full read at least every 10 da
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// Calendar-safe YYYYMMDD arithmetic. This avoids host-timezone/DST shifts in cache windows.
+export function cutoffFromYmd(todayYmd, days) {
+  const s = String(todayYmd).replace(/\D/g, '');
+  const d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8) - days));
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+}
+
 // 'YYYYMMDD' string `days` before `now` (Date). Used for the windowed `day >=` query.
 export function cutoffYmd(now, days) {
-  const d = new Date(now.getTime() - days * 86400000);
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const todayYmd = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  return cutoffFromYmd(todayYmd, days);
 }
 
 // Decide whether this open needs a FULL read (first run, no cache, or reconcile due).

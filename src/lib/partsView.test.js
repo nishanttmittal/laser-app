@@ -186,3 +186,10 @@ test('buildParts: catPhoto carried through — first non-empty in group', () => 
   const cards = buildParts(jobs, { day: '20260702' })
   assert.equal(cards[0].catPhoto, 'data:img/photo')
 })
+
+test('buildParts: saved visual job name replaces the raw machine filename', () => {
+  const cards = buildParts([
+    job({ file: '30x20x610.zx', catName: 'Cycle frame side rail', catPhoto: 'data:img/photo' }),
+  ], { day: '20260702' })
+  assert.equal(cards[0].label, 'Cycle frame side rail')
+})
