@@ -352,6 +352,28 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .product-chips { display: flex; gap: 7px; overflow-x: auto; padding: 0 0 11px; }
 .product-chips button { flex: 0 0 auto; padding: 8px 11px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--panel2); color: var(--txt); font-size: 12px; font-weight: 600; }
+.quote-programs { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.quote-programs summary { min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+  color: var(--txt); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }
+.quote-programs summary::-webkit-details-marker { display: none; }
+.quote-programs summary::before { content: '›'; color: var(--accent); font-size: 21px; line-height: 1; transform: rotate(0); }
+.quote-programs[open] summary::before { transform: rotate(90deg); }
+.quote-programs summary b { margin-left: auto; color: var(--accent); font: 11px var(--mono); }
+.quote-programs > .search { width: calc(100% - 20px); margin: 0 10px 9px; }
+.quote-program-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 0 10px 10px; }
+.quote-program-grid button { min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 9px;
+  min-height: 68px; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); color: var(--txt); text-align: left; cursor: pointer; }
+.quote-program-grid button.on { border-color: var(--accent); background: rgba(45,212,238,.1); }
+.quote-program-grid img, .quote-program-placeholder { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 5px; object-fit: cover; background: #fff; }
+.quote-program-placeholder { color: #64748b; font: 700 10px var(--mono); }
+.quote-program-grid button > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.quote-program-grid strong { font-size: 12px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-program-grid small { color: var(--mut); font: 10px/1.25 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-selected-program { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;
+  padding: 8px 10px; border-left: 3px solid var(--green); background: rgba(52,211,153,.08); font: 11px var(--mono); }
+.quote-selected-program span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-selected-program strong { flex: 0 0 auto; color: var(--green); }
 .quote-import { display: grid; grid-template-columns: 170px minmax(0, 1fr) 150px; gap: 10px; align-items: stretch; margin-top: 13px; }
 .filebtn { display: flex; align-items: center; justify-content: center; min-height: 54px; padding: 10px; cursor: pointer;
   border: 1px dashed var(--accent); border-radius: 7px; color: var(--accent); font-size: 13px; font-weight: 700; text-align: center; }
@@ -398,6 +420,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   .quote-import textarea { grid-column: 1 / -1; order: -1; }
   .line-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .programpick { grid-template-columns: 1fr; max-height: 560px; }
+  .quote-program-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 440px) {

@@ -1,6 +1,8 @@
 // Pure, no React, no Firebase — aggregates laser_jobs into a per-part-per-day card list.
 // Mirrors the BOCHU "Parts" screen concept: one card per file+size combination, per day.
 
+import { programFileName } from './catalog.js'
+
 const baseName = (p) => (p ? String(p).split(/[\\/]/).pop() : '')
 
 // Label fallback chain (81 % of runs have blank portionName / parts names).
@@ -37,7 +39,7 @@ export function buildParts(jobs, { day } = {}) {
     if (!groups[key]) {
       groups[key] = {
         key,
-        fileName: baseName(j.file || j.fileName || ''),
+        fileName: programFileName(j.file || j.fileName || ''),
         label: cardLabel(j),
         section: j.section || '',
         length: j.length ?? null,

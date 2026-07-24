@@ -1449,7 +1449,7 @@ export default function App() {
       )}
       <main>
         <FreshnessBanner days={days} />
-        {tab === 'Quote' && (ready ? <Quote jobs={mappedJobs} cfg={cfg} mo={mo} userEmail={user.email} /> : <Loading />)}
+        {tab === 'Quote' && (ready ? <Quote jobs={mappedJobs} catalog={catalog} cfg={cfg} mo={mo} userEmail={user.email} /> : <Loading />)}
         {tab === 'Parts' && (ready ? <Parts jobs={mappedJobs} days={days} cfg={cfg} role={role} /> : <Loading />)}
         {tab === 'Library' && (ready ? <JobCatalog jobs={mappedJobs} catalog={catalog} onSaved={() => loadCatalog().then(setCatalog)} /> : <Loading />)}
         {tab === 'Dashboard' && <Dashboard days={vdays} cfg={cfg} mo={mo} meta={meta} />}

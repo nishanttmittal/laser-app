@@ -5,6 +5,8 @@ import { businessDateKey } from '../lib/time.js'
 import { computeQuote, nearestSecPerPiece, normalizeSection } from '../lib/quoteMath.js'
 import { parseDelimited, parseSpreadsheetFile } from '../lib/parseUpload.js'
 import { buildQuotePDF } from '../lib/quotePdf.js'
+import { buildQuoteProgramChoices, quoteDraftFromProgram, updateExactProgramField } from '../lib/quotePrograms.js'
+import { loadMachineManifest } from '../lib/machineManifestStore.js'
 import {
   loadLocalQuoteDefaults,
   loadLocalQuoteWorkspace,
@@ -17,7 +19,10 @@ const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-const blankPart = () => ({ name: '', section: '', thickness: '', length: '', qty: '', secPerPiece: '', cutPricePerPiece: '' })
+const blankPart = () => ({
+  name: '', section: '', thickness: '', length: '', qty: '', secPerPiece: '',
+  cutPricePerPiece: '', matchSizeKey: '',
+})
 
 function inputLine(line) {
   return {
@@ -42,7 +47,7 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
-export default function Quote({ jobs, cfg, mo, userEmail }) {
+export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
   const initialDefaults = {
     pipeRate: cfg.quoteDefaults?.pipeRate ?? cfg.material?.ratePerKgMS ?? 80,
     wastagePct: cfg.quoteDefaults?.wastagePct ?? 5,
@@ -60,9 +65,21 @@ export default function Quote({ jobs, cfg, mo, userEmail }) {
   const [workspace, setWorkspace] = useState(() => loadLocalQuoteWorkspace())
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState('')
+  const [manifest, setManifest] = useState(null)
+  const [programSearch, setProgramSearch] = useState('')
 
   const knownSizes = useMemo(() =>
     groupBySize(jobs).filter((size) => size.hasSize && size.secPerPiece > 0), [jobs])
+  const programChoices = useMemo(() =>
+    buildQuoteProgramChoices(jobs, manifest, catalog), [jobs, manifest, catalog])
+  const visiblePrograms = useMemo(() => {
+    const search = programSearch.trim().toLowerCase()
+    const rows = search
+      ? programChoices.filter((choice) =>
+        `${choice.name} ${choice.fileName} ${choice.section} ${choice.thickness}`.toLowerCase().includes(search))
+      : programChoices
+    return rows.slice(0, 12)
+  }, [programChoices, programSearch])
   const totals = useMemo(() => computeQuote(lines, settings.gstPct, {
     pipeRate: settings.pipeRate,
     wastagePct: settings.wastagePct,
@@ -76,6 +93,14 @@ export default function Quote({ jobs, cfg, mo, userEmail }) {
     loadQuoteWorkspace()
       .then((cloud) => { if (active) setWorkspace((local) => mergeQuoteWorkspaces(local, cloud)) })
       .catch(() => { if (active) setStatus('Cloud quote storage is not enabled yet. Quotes still save on this device.') })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    loadMachineManifest()
+      .then((stored) => { if (active) setManifest(stored) })
+      .catch(() => {})
     return () => { active = false }
   }, [])
 
@@ -103,6 +128,20 @@ export default function Quote({ jobs, cfg, mo, userEmail }) {
   const addDraft = () => {
     addParts([draft])
     setDraft(blankPart())
+    setProgramSearch('')
+  }
+
+  const selectProgram = (choice) => {
+    setDraft((current) => quoteDraftFromProgram(choice, current))
+    setProgramSearch(choice.fileName)
+  }
+
+  const updateDraft = (field, value) => {
+    const next = updateExactProgramField(draft, field, value)
+    setDraft(next)
+    if (draft.matchSizeKey && !next.matchSizeKey) {
+      setStatus('Exact program cutting time cleared because the tube size changed.')
+    }
   }
 
   const importResult = (result) => {
@@ -121,10 +160,15 @@ export default function Quote({ jobs, cfg, mo, userEmail }) {
   }
 
   const updateLine = (id, field, value) => {
-    setLines((current) => current.map((line) => line.id === id ? { ...line, [field]: value } : line))
+    setLines((current) => current.map((line) =>
+      line.id === id ? updateExactProgramField(line, field, value) : line))
   }
   const matchLine = (id) => {
-    setLines((current) => current.map((line) => line.id === id ? rematch({ ...line, secPerPiece: '' }) : line))
+    setLines((current) => current.map((line) => {
+      if (line.id !== id) return line
+      if (line.matchSizeKey.startsWith('Exact program') && Number(line.secPerPiece) > 0) return line
+      return rematch({ ...line, secPerPiece: '' })
+    }))
   }
 
   const customerFromName = (name) => {
@@ -319,15 +363,49 @@ export default function Quote({ jobs, cfg, mo, userEmail }) {
             ))}
           </div>
         )}
+        {!!programChoices.length && (
+          <details className="quote-programs">
+            <summary>
+              <span>Choose exact cutting program</span>
+              <b>{programChoices.length}</b>
+            </summary>
+            <input className="search" value={programSearch} onChange={(event) => setProgramSearch(event.target.value)}
+              placeholder="Search program, product, or tube size" />
+            <div className="quote-program-grid">
+              {visiblePrograms.map((choice) => (
+                <button type="button" key={choice.key} onClick={() => selectProgram(choice)}
+                  className={draft.matchSizeKey === `Exact program · ${choice.fileName}` ? 'on' : ''}>
+                  {choice.image
+                    ? <img src={choice.image} alt={choice.imageKind === 'product' ? choice.name : `${choice.fileName} cutting drawing`}
+                      className={choice.imageKind === 'geometry' ? 'machinepreview' : ''} />
+                    : <span className="quote-program-placeholder">CUT</span>}
+                  <span>
+                    <strong>{choice.name}</strong>
+                    {choice.name !== choice.fileName && <small>{choice.fileName}</small>}
+                    <small>{choice.section || 'Unlabelled'}{choice.thickness ? ` · t${choice.thickness}` : ''} · {choice.secPerPiece.toFixed(1)} sec/pc</small>
+                    <small>{choice.pieces.toLocaleString('en-IN')} pcs · {choice.runs.toLocaleString('en-IN')} runs</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+            {programSearch && !visiblePrograms.length && <div className="note">No exact cutting program matches.</div>}
+          </details>
+        )}
+        {draft.matchSizeKey.startsWith('Exact program') && (
+          <div className="quote-selected-program">
+            <span>{draft.matchSizeKey.replace('Exact program · ', '')}</span>
+            <strong>{Number(draft.secPerPiece).toFixed(2)} sec/pc</strong>
+          </div>
+        )}
         <div className="quote-fields part-entry">
-          <label>Part name<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. side rail" /></label>
+          <label>Part name<input value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} placeholder="e.g. side rail" /></label>
           <label>Tube section
-            <input list="quote-sizes" value={draft.section} onChange={(event) => setDraft({ ...draft, section: event.target.value })} placeholder="40x20 or R50" />
+            <input list="quote-sizes" value={draft.section} onChange={(event) => updateDraft('section', event.target.value)} placeholder="40x20 or R50" />
             <datalist id="quote-sizes">{knownSizes.map((size) => <option key={size.sizeKey} value={size.sizeKey.replace(/\s+t.*$/i, '')} />)}</datalist>
           </label>
-          <label>Thickness mm<input type="number" inputMode="decimal" min="0" value={draft.thickness} onChange={(event) => setDraft({ ...draft, thickness: event.target.value })} /></label>
-          <label>Length mm<input type="number" inputMode="numeric" min="0" value={draft.length} onChange={(event) => setDraft({ ...draft, length: event.target.value })} /></label>
-          <label>Quantity<input type="number" inputMode="numeric" min="0" value={draft.qty} onChange={(event) => setDraft({ ...draft, qty: event.target.value })} /></label>
+          <label>Thickness mm<input type="number" inputMode="decimal" min="0" value={draft.thickness} onChange={(event) => updateDraft('thickness', event.target.value)} /></label>
+          <label>Length mm<input type="number" inputMode="numeric" min="0" value={draft.length} onChange={(event) => updateDraft('length', event.target.value)} /></label>
+          <label>Quantity<input type="number" inputMode="numeric" min="0" value={draft.qty} onChange={(event) => updateDraft('qty', event.target.value)} /></label>
           <button type="button" className="btn compact" onClick={addDraft}>Add part</button>
         </div>
 

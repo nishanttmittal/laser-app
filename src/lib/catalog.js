@@ -2,11 +2,21 @@
 // so a friendly name + thumbnail surfaces wherever that file's runs appear.
 // Pure + testable: no React, no Firebase.
 
-const baseName = (p) => (p ? String(p).split(/[\\/]/).pop() : '');
-// Normalize a file name to a match key: basename, lowercased, trimmed.
-export const normFile = (p) => baseName(p).trim().toLowerCase();
 // Same, but without the machine extension, so "123" matches "123.zzx".
 const PROGRAM_EXT = /\.(zx|zzx|dxf|nc|tube)$/i;
+
+// BOCHU compound names use "program.zx\Nested part name". A real Windows/POSIX path has no
+// program extension in its first segment, so it still resolves to the final basename.
+export function programFileName(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const segments = text.split(/[\\/]/)
+  const first = segments[0].trim()
+  return PROGRAM_EXT.test(first) ? first : (segments.pop() || '').trim()
+}
+
+// Normalize a file name to a match key: logical program filename, lowercased, trimmed.
+export const normFile = (p) => programFileName(p).toLowerCase();
 const noExt = (p) => normFile(p).replace(PROGRAM_EXT, '');
 
 function setUnique(map, key, value) {
@@ -93,7 +103,7 @@ export function programOptions(jobs, catalog = []) {
 
   const programs = new Map();
   for (const job of jobs || []) {
-    const fileName = baseName(job?.file || job?.fileName || '').trim();
+    const fileName = programFileName(job?.file || job?.fileName || '');
     const key = normFile(fileName);
     if (!key) continue;
     let option = programs.get(key);

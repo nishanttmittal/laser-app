@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normFile, buildCatalogIndex, matchCatalog, tagJobs, sizeCatalog, programOptions } from './catalog.js';
+import { normFile, programFileName, buildCatalogIndex, matchCatalog, tagJobs, sizeCatalog, programOptions } from './catalog.js';
 
 const cat = [
   { id: 'a', name: 'Varun table leg', photo: 'data:img/leg', sizeKey: '54x50 t3.2' }, // size-linked (new)
@@ -13,6 +13,12 @@ test('normFile: basename + lowercase', () => {
   assert.equal(normFile('/x/y/123.zzx'), '123.zzx');
   assert.equal(normFile(''), '');
 });
+
+test('programFileName uses the BOCHU program head without mistaking a Windows path', () => {
+  assert.equal(programFileName('table107.zx\\Rectangular Tube 50 X 25_Nest 2'), 'table107.zx');
+  assert.equal(programFileName('C:\\jobs\\table107.zx'), 'table107.zx');
+  assert.equal(programFileName('/jobs/table107.zx'), 'table107.zx');
+})
 
 test('index has separate size and file maps; skips unlinkable entries', () => {
   const idx = buildCatalogIndex(cat);
@@ -102,6 +108,17 @@ test('programOptions groups real runs by exact program and marks linked programs
   assert.equal(options[0].tubeLength, 6000);
   assert.equal(options[1].linkedName, '');
 });
+
+test('programOptions groups BOCHU nested names under their source program', () => {
+  const options = programOptions([
+    { file: 'table107.zx\\Rectangular Tube 50 X 25_Nest 1', day: '20260720', partAmount: 10, timeTaken: 100 },
+    { file: 'table107.zx\\Rectangular Tube 50 X 25_Nest 2', day: '20260721', partAmount: 20, timeTaken: 300 },
+  ])
+  assert.equal(options.length, 1)
+  assert.equal(options[0].fileName, 'table107.zx')
+  assert.equal(options[0].pieces, 30)
+  assert.equal(options[0].secPerPiece, 400 / 30)
+})
 
 test('extension-free catalog matching is disabled when two exact files share a stem', () => {
   const idx = buildCatalogIndex([

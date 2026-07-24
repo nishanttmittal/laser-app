@@ -108,6 +108,14 @@ test('buildParts: label fallback — file basename when portionName and parts bl
   assert.equal(cards[0].fileName, 'some_part.zzx')
 })
 
+test('buildParts keeps the nested label but matches by the BOCHU source program', () => {
+  const cards = buildParts([
+    job({ file: 'table107.zx\\Rectangular Tube 50 X 25_Nest 2' }),
+  ], { day: '20260702' })
+  assert.equal(cards[0].label, 'Rectangular Tube 50 X 25_Nest 2')
+  assert.equal(cards[0].fileName, 'table107.zx')
+})
+
 test('buildParts: label fallback — sizeKey when file is also blank', () => {
   const jobs = [job({ portionName: '', parts: [], file: '', sizeKey: '40x40 t2' })]
   const cards = buildParts(jobs, { day: '20260702' })
