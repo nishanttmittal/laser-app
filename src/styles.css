@@ -355,6 +355,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .quote-fields { display: grid; gap: 10px; }
 .quote-fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .quote-fields.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.quote-fields.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .quote-fields label, .notes-label { display: flex; flex-direction: column; gap: 5px; min-width: 0;
   color: var(--mut); font-size: 12px; font-weight: 600; letter-spacing: 0; }
 .quote-fields input, .quote-fields select, .quote-import textarea, .notes-label textarea, .quote-line-head input {
@@ -429,7 +430,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .recent-quotes b { flex: 0 0 auto; color: var(--green); font-family: var(--mono); }
 
 @media (max-width: 680px) {
-  .quote-fields.five { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quote-fields.five, .quote-fields.six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .part-entry { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .part-entry label:first-child { grid-column: span 2; }
   .quote-import { grid-template-columns: 1fr 1fr; }
@@ -441,7 +442,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 
 @media (max-width: 440px) {
   .quote-fields.two { grid-template-columns: 1fr; }
-  .quote-fields.five, .part-entry, .line-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quote-fields.five, .quote-fields.six, .part-entry, .line-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .part-entry label:first-child { grid-column: 1 / -1; }
   .quote-import { grid-template-columns: 1fr; }
   .quote-import textarea { grid-column: auto; }

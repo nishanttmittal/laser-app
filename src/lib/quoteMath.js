@@ -80,6 +80,13 @@ export function computeLine(input = {}) {
   const secPerPiece = Math.max(0, num(input.secPerPiece))
   const cutRatePerMin = Math.max(0, num(input.cutRatePerMin))
   const cutCostPerMin = Math.max(0, num(input.cutCostPerMin))
+  // BOCHU's sec/pc is machine-ON time only — it excludes loading the tube, size/length
+  // changes, program set-up and QC. Billing raw cut seconds therefore gives away every
+  // one of those minutes. The uplift loads them back on, and applies to the COST as well
+  // because the machine is genuinely occupied for them (cutCostPerMin is already a cost
+  // per BILLABLE minute, so raw cut minutes alone understate what the job consumes).
+  const setupLoadPct = Math.max(0, num(input.setupLoadPct))
+  const billedSecPerPiece = secPerPiece * (1 + setupLoadPct / 100)
   const manualCutPrice = input.cutPricePerPiece !== '' && input.cutPricePerPiece != null
     ? Math.max(0, num(input.cutPricePerPiece))
     : null
@@ -92,8 +99,10 @@ export function computeLine(input = {}) {
   const baseWeightKg = grams == null ? 0 : grams / 1000
   const billedWeightKg = baseWeightKg * (1 + wastagePct / 100)
   const materialPerPc = materialByCustomer ? 0 : billedWeightKg * pipeRate
-  const cuttingPerPc = manualCutPrice == null ? (secPerPiece / 60) * cutRatePerMin : manualCutPrice
-  const cutCostPerPc = (secPerPiece / 60) * cutCostPerMin
+  // A typed ₹/pc is the owner's stated final price — never uplift that. Cost always uses
+  // the loaded time, whatever we chose to charge.
+  const cuttingPerPc = manualCutPrice == null ? (billedSecPerPiece / 60) * cutRatePerMin : manualCutPrice
+  const cutCostPerPc = (billedSecPerPiece / 60) * cutCostPerMin
   const pricePerPc = materialPerPc + cuttingPerPc
   const costPerPc = materialPerPc + cutCostPerPc
   const amount = pricePerPc * qty
@@ -120,6 +129,8 @@ export function computeLine(input = {}) {
     pipeRate,
     wastagePct,
     secPerPiece,
+    setupLoadPct,
+    billedSecPerPiece,
     cutRatePerMin,
     cutCostPerMin,
     cutPricePerPiece: manualCutPrice,

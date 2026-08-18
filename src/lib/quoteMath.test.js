@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+const round = (v) => Math.round(v * 100) / 100
 import assert from 'node:assert/strict'
 import { computeLine, computeQuote, materialBasisNote, nearestSecPerPiece, normalizeSection } from './quoteMath.js'
 
@@ -152,4 +153,49 @@ test('materialBasisNote states the basis on job-work and mixed quotes, and stays
   assert.match(materialBasisNote('mixed'), /by customer/i)
   assert.equal(materialBasisNote('unico'), '')
   assert.equal(materialBasisNote(undefined), '')
+})
+
+test('setup & loading uplift bills more than raw machine-on time', () => {
+  const base = { name: 'Leg', section: '40x20', thickness: 1.2, length: 500, qty: 100,
+    secPerPiece: 10, pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+  const raw = computeLine(base)
+  const loaded = computeLine({ ...base, setupLoadPct: 50 })
+
+  assert.equal(loaded.billedSecPerPiece, 15)
+  assert.equal(round(loaded.cuttingPerPc), round(raw.cuttingPerPc * 1.5))
+  // the machine is genuinely occupied for that time, so cost rises with it
+  assert.equal(round(loaded.cutCostPerPc), round(raw.cutCostPerPc * 1.5))
+  // material is untouched by a time uplift
+  assert.equal(loaded.materialPerPc, raw.materialPerPc)
+})
+
+test('uplift never inflates a manually typed cutting price, but still loads the cost', () => {
+  const base = { name: 'Leg', section: '40x20', thickness: 1.2, length: 500, qty: 100,
+    secPerPiece: 10, pipeRate: 80, cutRatePerMin: 40, cutCostPerMin: 25, cutPricePerPiece: 9 }
+  const loaded = computeLine({ ...base, setupLoadPct: 50 })
+  assert.equal(loaded.cuttingPerPc, 9, 'a typed price is the final price')
+  assert.equal(round(loaded.cutCostPerPc), round((15 / 60) * 25))
+})
+
+test('zero or missing uplift keeps the old raw-cut-time behaviour', () => {
+  const base = { name: 'Leg', section: '40x20', thickness: 1.2, length: 500, qty: 100,
+    secPerPiece: 10, pipeRate: 80, cutRatePerMin: 40, cutCostPerMin: 25 }
+  const none = computeLine(base)
+  const zero = computeLine({ ...base, setupLoadPct: 0 })
+  assert.equal(none.billedSecPerPiece, 10)
+  assert.equal(zero.cuttingPerPc, none.cuttingPerPc)
+  assert.equal(zero.cutCostPerPc, none.cutCostPerPc)
+})
+
+test('uplift flows from quote defaults into every line and lifts the total', () => {
+  const part = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 100, secPerPiece: 10 }
+  const opts = { pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+  const plain = computeQuote([part], 18, opts)
+  const loaded = computeQuote([part], 18, { ...opts, setupLoadPct: 50 })
+  assert.equal(loaded.lines[0].setupLoadPct, 50)
+  assert.ok(loaded.subtotal > plain.subtotal)
+  // cutting-only quote: the whole price is cut time, so a 50% uplift is a 50% bigger bill
+  const jobPlain = computeQuote([part], 18, { ...opts, materialByCustomer: true })
+  const jobLoaded = computeQuote([part], 18, { ...opts, materialByCustomer: true, setupLoadPct: 50 })
+  assert.equal(round(jobLoaded.subtotal), round(jobPlain.subtotal * 1.5))
 })

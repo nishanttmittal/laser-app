@@ -56,6 +56,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     density: cfg.quoteDefaults?.density ?? 7.85,
     gstPct: cfg.quoteDefaults?.gstPct ?? 18,
     cutRatePerMin: cfg.chargePerMin ?? 40,
+    setupLoadPct: cfg.quoteDefaults?.setupLoadPct ?? 50,
   }
   const [settings, setSettings] = useState(() => loadLocalQuoteDefaults(initialDefaults))
   const [customer, setCustomer] = useState({ id: '', name: '', phone: '' })
@@ -89,6 +90,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     density: settings.density,
     cutRatePerMin: settings.cutRatePerMin,
     cutCostPerMin: mo.costPerBillMin || 0,
+    setupLoadPct: settings.setupLoadPct,
     materialByCustomer,
   }), [lines, settings, mo.costPerBillMin, materialByCustomer])
 
@@ -189,6 +191,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     lines: totals.lines,
     materialByCustomer,
     materialBasis: totals.materialBasis,
+    setupLoadPct: Number(settings.setupLoadPct) || 0,
     pipeRate: Number(settings.pipeRate),
     wastagePct: Number(settings.wastagePct),
     density: Number(settings.density),
@@ -307,6 +310,9 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
       density: quote.density ?? initialDefaults.density,
       gstPct: quote.gstPct ?? initialDefaults.gstPct,
       cutRatePerMin: quote.cutRatePerMin ?? initialDefaults.cutRatePerMin,
+      // Quotes saved before the uplift existed were priced on raw cut time. Falling back to
+      // today's default would silently re-price a reopened old quote — so it falls back to 0.
+      setupLoadPct: quote.setupLoadPct ?? 0,
     })
     setMaterialByCustomer(!!quote.materialByCustomer)
     setLines((quote.lines || []).map(inputLine))
@@ -358,7 +364,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
         {materialByCustomer && (
           <div className="note">Cutting charges only — material is <b>not</b> priced. Weight is still shown so the customer knows how much tube to send. This prints on the quote, PDF and WhatsApp message.</div>
         )}
-        <div className="quote-fields five">
+        <div className="quote-fields six">
           <label>Pipe ₹/kg<input type="number" inputMode="decimal" min="0" value={settings.pipeRate} onChange={(event) => setSettings({ ...settings, pipeRate: event.target.value })} /></label>
           <label>Wastage %<input type="number" inputMode="decimal" min="0" value={settings.wastagePct} onChange={(event) => setSettings({ ...settings, wastagePct: event.target.value })} /></label>
           <label>Material
@@ -369,7 +375,9 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
           </label>
           <label>Cut ₹/min<input type="number" inputMode="decimal" min="0" value={settings.cutRatePerMin} onChange={(event) => setSettings({ ...settings, cutRatePerMin: event.target.value })} /></label>
           <label>GST %<input type="number" inputMode="decimal" min="0" value={settings.gstPct} onChange={(event) => setSettings({ ...settings, gstPct: event.target.value })} /></label>
+          <label>Setup &amp; loading %<input type="number" inputMode="decimal" min="0" value={settings.setupLoadPct} onChange={(event) => setSettings({ ...settings, setupLoadPct: event.target.value })} /></label>
         </div>
+        <div className="note">Machine cutting time is <b>machine-on only</b> — it excludes loading tubes, size changes, programming and QC. <b>{Number(settings.setupLoadPct) || 0}%</b> is added on top, so {Number(settings.setupLoadPct) === 50 ? '10 sec/pc of cutting bills as 15 sec' : `10 sec/pc of cutting bills as ${(10 * (1 + (Number(settings.setupLoadPct) || 0) / 100)).toFixed(1)} sec`}. Set 0 to bill raw cutting time. A cut ₹/pc you type yourself is never uplifted.</div>
       </section>
 
       <section className="quote-section">
@@ -465,7 +473,8 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
               <div className="quote-line-summary">
                 <span>{line.billedWeightKg.toFixed(3)} kg/pc</span>
                 <span>{line.materialByCustomer ? 'Material by customer' : `Material ${money(line.materialPerPc)}`}</span>
-                <span>Cut {money(line.cuttingPerPc)}</span>
+                <span>Cut {money(line.cuttingPerPc)}{line.setupLoadPct > 0 && line.cutPricePerPiece == null && line.secPerPiece > 0
+                  ? ` (${line.secPerPiece}s + ${line.setupLoadPct}% = ${line.billedSecPerPiece.toFixed(1)}s)` : ''}</span>
                 <strong>{money(line.pricePerPc)}/pc · {money(line.amount)}</strong>
               </div>
               {lines[index].matchSizeKey && <div className="quote-match">Cut time from {lines[index].matchSizeKey}</div>}
