@@ -266,7 +266,11 @@ async function fetchRecentJobs() {
 }
 
 let _jobs = null
-export async function loadJobs() {
+// onPartial (optional): called with the recent-window jobs so the UI can render
+// immediately while the full-history reconcile (~7k docs, minutes on a phone)
+// finishes in the background. Without it a full-read day blanked every tab
+// behind "loading runs…" until the whole collection had downloaded.
+export async function loadJobs(onPartial) {
   if (_jobs) return _jobs
   const now = Date.now()
   const meta = lsGet(META_KEY)
@@ -275,19 +279,25 @@ export async function loadJobs() {
   // once-a-day gate: if jobs were already read today, serve the cache with no Firestore read.
   if (meta && meta.lastReadDay === today() && cache.length) { _jobs = prepareJobs(cache); return _jobs }
 
+  const full = needFullRead(meta, now)
+  let partial = null
   try {
-    if (needFullRead(meta, now)) {
+    const recent = await fetchRecentJobs()             // light window: ~last 35 days (fast)
+    partial = prepareJobs(mergeJobs(cache, recent))
+    if (full) {
+      if (onPartial && partial.length) onPartial(partial) // first paint while history downloads
       const all = await fetchAllJobs()                 // full reconcile (first run / every 10 days)
-      _jobs = prepareJobs(all)
+      _jobs = prepareJobs(mergeJobs(partial, all))
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
       lsSet(META_KEY, { lastFullAt: now, count: _jobs.length, lastReadDay: today() })
     } else {
-      const recent = await fetchRecentJobs()           // light refresh: ~last 35 days only
-      _jobs = prepareJobs(mergeJobs(cache, recent))
+      _jobs = partial
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
       lsSet(META_KEY, { ...meta, lastReadDay: today() }) // keep lastFullAt; stamp today's read
     }
   } catch (e) {
+    // history read failed/stalled -> at least the recent window works this open
+    if (partial && partial.length) { _jobs = partial; return _jobs }
     if (cache.length) { _jobs = prepareJobs(cache); return _jobs } // offline/quota -> serve cache
     throw e
   }

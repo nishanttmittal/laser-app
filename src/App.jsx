@@ -1406,6 +1406,7 @@ export default function App() {
   const [user, setUser] = useState(undefined) // undefined = checking, null = signed out
   const [role, setRole] = useState(undefined) // undefined=checking, null=not allowed, 'owner'|'meter'
   const [refreshKey, setRefreshKey] = useState(0)
+  const [histSyncing, setHistSyncing] = useState(false)
   const allowed = role === 'owner' || role === 'meter'
 
   useEffect(() => onAuth(async (u) => { setUser(u || null); setRole(u ? await getRole(u) : null) }), [])
@@ -1413,12 +1414,15 @@ export default function App() {
   useEffect(() => {
     if (role !== 'owner') return // only the owner loads the full dataset; staff = meter screen only
     loadCore().then(setCore).catch((e) => setErr(e.message))
-    loadJobs().then(setJobs).catch((e) => setErr(e.message))
+    // Progressive: recent window paints first; full history merges in when it lands.
+    loadJobs((partial) => { setJobs(partial); setHistSyncing(true) })
+      .then((all) => { setJobs(all); setHistSyncing(false) })
+      .catch((e) => { setHistSyncing(false); setErr(e.message) })
     loadSizeMap().then(setSizeMap).catch(() => {})
     loadCatalog().then(setCatalog).catch(() => {})
   }, [role, refreshKey])
 
-  const refresh = () => { forceRefresh(); setErr(''); setCore(null); setJobs(null); setRefreshKey((k) => k + 1) }
+  const refresh = () => { forceRefresh(); setErr(''); setCore(null); setJobs(null); setHistSyncing(false); setRefreshKey((k) => k + 1) }
 
   const catIdx = useMemo(() => buildCatalogIndex(catalog), [catalog])
   const mappedJobs = useMemo(() => tagJobs(enrichJobs(jobs || [], sizeMap), catIdx), [jobs, sizeMap, catIdx])
@@ -1449,6 +1453,7 @@ export default function App() {
     <div className="app">
       <header className="top"><Brand />
         {!ready && <span className="sync">loading runs…</span>}
+        {ready && histSyncing && <span className="sync">syncing history…</span>}
         <button className="signout" onClick={refresh} title="Refresh (live read)" style={{ marginLeft: 'auto' }}>↻ Refresh</button>
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 8 }}>Sign out</button>
       </header>
