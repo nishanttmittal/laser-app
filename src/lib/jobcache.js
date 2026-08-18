@@ -19,10 +19,20 @@ export function cutoffYmd(now, days) {
   return cutoffFromYmd(todayYmd, days);
 }
 
+export const FULL_RETRY_COOLOFF_MIN = 30; // after a failed full read, don't try again for a while
+
 // Decide whether this open needs a FULL read (first run, no cache, or reconcile due).
 export function needFullRead(meta, nowMs, reconcileDays = RECONCILE_DAYS) {
   if (!meta || !meta.lastFullAt) return true;
   return (nowMs - meta.lastFullAt) > reconcileDays * 86400000;
+}
+
+// A full read that just failed (stalled phone connection, quota) must not be retried on
+// every single app open — each attempt costs the recent window again against a 50k/day
+// budget shared with every other UNICO app. Manual Refresh clears the mark and retries.
+export function fullReadBlocked(meta, nowMs, cooloffMin = FULL_RETRY_COOLOFF_MIN) {
+  if (!meta || !meta.lastFullErrorAt) return false;
+  return (nowMs - meta.lastFullErrorAt) < cooloffMin * 60000;
 }
 
 // What the job set should be after a read.

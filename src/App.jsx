@@ -1391,18 +1391,19 @@ export function JobCatalog({ jobs: suppliedJobs = null, catalog: suppliedCatalog
   )
 }
 
+// Staff see the meter screen and nothing else. A Jobs tab used to sit here, but with no
+// jobs passed in JobCatalog falls back to loadJobs() — the whole ~7k-doc history — on a
+// worker's phone, against a 50k/day quota shared with every other UNICO app. It also put
+// the least-privileged role inside a catalog-editing workflow it was never meant to have.
+// If catalog entry is ever wanted on the floor, add a separate role with its own small
+// query rather than reopening this one.
 function StaffMeter({ user }) {
-  const [t, setT] = useState('Meter')
   return (
     <div className="app">
       <header className="top"><Brand />
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 'auto' }}>Sign out</button>
       </header>
-      <main>{t === 'Meter' ? <MeterEntry /> : <JobCatalog />}<div className="note">Signed in as {user.email}</div></main>
-      <nav className="tabs">
-        <button className={t === 'Meter' ? 'on' : ''} onClick={() => setT('Meter')}>Meter</button>
-        <button className={t === 'Jobs' ? 'on' : ''} onClick={() => setT('Jobs')}>Jobs</button>
-      </nav>
+      <main><MeterEntry /><div className="note">Signed in as {user.email}</div></main>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cutoffFromYmd, cutoffYmd, needFullRead, jobsAfterRead, mergeJobs, RECONCILE_DAYS } from './jobcache.js';
+import { cutoffFromYmd, cutoffYmd, needFullRead, fullReadBlocked, jobsAfterRead, mergeJobs, RECONCILE_DAYS } from './jobcache.js';
 
 test('cutoffYmd returns YYYYMMDD string N days back', () => {
   assert.equal(cutoffYmd(new Date(2026, 5, 24), 35), '20260520'); // 24 Jun - 35d = 20 May
@@ -50,4 +50,18 @@ test('a full reconcile drops jobs deleted upstream; a light refresh keeps older 
   // LIGHT: only the 35-day window was read, so cached history must be kept.
   const light = jobsAfterRead({ cache, recent }).map((j) => j.workUuid).sort();
   assert.deepEqual(light, ['deleted-upstream', 'fresh', 'old']);
+});
+
+test('a failed full read is not retried on every open, but Refresh can force it', () => {
+  const now = 1_700_000_000_000;
+  const due = { lastFullAt: now - 20 * 86400000 };            // reconcile overdue
+
+  assert.equal(needFullRead(due, now), true);
+  assert.equal(fullReadBlocked({ ...due, lastFullErrorAt: now - 60_000 }, now), true,
+    'a failure a minute ago must hold off the next attempt');
+  assert.equal(fullReadBlocked({ ...due, lastFullErrorAt: now - 40 * 60_000 }, now), false,
+    'the cool-off expires');
+  assert.equal(fullReadBlocked(due, now), false, 'no failure recorded means no block');
+  // forceRefresh clears the mark, so a manual Refresh always retries
+  assert.equal(fullReadBlocked({ ...due, lastFullErrorAt: 0 }, now), false);
 });

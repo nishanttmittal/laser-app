@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
-import { getFirestore, collection, getDocs, doc, getDoc, setDoc, query, where } from 'firebase/firestore'
-import { cutoffFromYmd, needFullRead, jobsAfterRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, writeBatch, query, where } from 'firebase/firestore'
+import { cutoffFromYmd, needFullRead, fullReadBlocked, jobsAfterRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
 import { readLargeCache, writeLargeCache } from './lib/largeCache.js'
 import { businessDateKey, businessYmd, machineYmd, normalizeJobTime } from './lib/time.js'
 
@@ -181,7 +181,7 @@ const _ls = { get: (k) => { try { return JSON.parse(localStorage.getItem(k) || '
 export function forceRefresh() {
   try {
     const c = _ls.get(CORE_KEY); if (c) _ls.set(CORE_KEY, { ...c, day: '' })
-    const m = lsGet(META_KEY); if (m) lsSet(META_KEY, { ...m, lastReadDay: '' })
+    const m = lsGet(META_KEY); if (m) lsSet(META_KEY, { ...m, lastReadDay: '', lastFullErrorAt: 0 })
     localStorage.removeItem(CAT_KEY)
   } catch { /* ignore */ }
   _jobs = null
@@ -214,24 +214,31 @@ export async function loadCore() {
 // editor doesn't touch). The app's costing recomputes from these raw fields on next load.
 // `meta.by` + `meta.changes` (old->new) are stamped on the doc and appended to an audit log
 // (laser_config_log) so a fat-finger on ₹/min or rent is traceable. Log is best-effort.
+// Live rates, the effective-dated snapshot and the audit event are ONE change, written in a
+// single batch. They used to be three sequential writes with the last two swallowing their
+// errors, so the screen could say "saved" while the rate history it is costed against was
+// missing — every later report on that period would then be quietly wrong with nothing to
+// show why. All three land or none do, and a failure now reaches the owner.
 export async function saveConfig(patch, meta = {}) {
-  await setDoc(doc(db, 'laser_config', 'settings'),
-    { ...patch, ratesUpdatedAt: Date.now(), ratesUpdatedBy: meta.by || '' }, { merge: true })
+  const at = Date.now()
   // Effective-dated snapshot: a full copy of the rates that take effect FROM TODAY. Past days
   // keep their earlier snapshot, so this change never re-costs already-supplied work.
   // Use the LOCAL (IST) date — laser_days.statDate is local-dated, and a UTC date would mis-stamp
   // an early-morning edit as the previous day.
   const effYmd = businessYmd()
-  try {
-    await setDoc(doc(db, 'laser_rate_history', String(effYmd)),
-      { ...patch, effectiveFrom: effYmd, by: meta.by || '', at: Date.now() }, { merge: true })
-  } catch { /* history is best-effort; the live settings still saved above */ }
+  const operationId = `${at}_${Math.random().toString(36).slice(2, 8)}`
+  const by = meta.by || ''
+
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'laser_config', 'settings'),
+    { ...patch, ratesUpdatedAt: at, ratesUpdatedBy: by, ratesOperationId: operationId }, { merge: true })
+  batch.set(doc(db, 'laser_rate_history', String(effYmd)),
+    { ...patch, effectiveFrom: effYmd, by, at, operationId }, { merge: true })
   if (meta.changes && meta.changes.length) {
-    try {
-      await setDoc(doc(db, 'laser_config_log', String(Date.now())),
-        { at: Date.now(), by: meta.by || '', changes: meta.changes })
-    } catch { /* audit log is best-effort — never block a valid save */ }
+    batch.set(doc(db, 'laser_config_log', String(at)),
+      { at, by, operationId, changes: meta.changes })
   }
+  await batch.commit()
 }
 
 export async function loadSizeMap() {
@@ -279,7 +286,7 @@ export async function loadJobs(onPartial) {
   // once-a-day gate: if jobs were already read today, serve the cache with no Firestore read.
   if (meta && meta.lastReadDay === today() && cache.length) { _jobs = prepareJobs(cache); return _jobs }
 
-  const full = needFullRead(meta, now)
+  const full = needFullRead(meta, now) && !fullReadBlocked(meta, now)
   let partial = null
   try {
     const recent = await fetchRecentJobs()             // light window: ~last 35 days (fast)
@@ -289,7 +296,7 @@ export async function loadJobs(onPartial) {
       const all = await fetchAllJobs()                 // full reconcile (first run / every 10 days)
       _jobs = prepareJobs(jobsAfterRead({ cache, recent, all }))
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
-      lsSet(META_KEY, { lastFullAt: now, count: _jobs.length, lastReadDay: today() })
+      lsSet(META_KEY, { lastFullAt: now, count: _jobs.length, lastReadDay: today(), lastFullErrorAt: 0 })
     } else {
       _jobs = prepareJobs(jobsAfterRead({ cache, recent }))
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
@@ -305,7 +312,9 @@ export async function loadJobs(onPartial) {
       // on a first-ever run an empty cache would otherwise trap the user on 35 days.
       try {
         await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
-        if (cache.length) lsSet(META_KEY, { ...meta, lastReadDay: today() })
+        // Mark the failure so the expensive full read isn't re-attempted on every open.
+        const failMeta = { ...meta, ...(full ? { lastFullErrorAt: now } : {}) }
+        lsSet(META_KEY, cache.length ? { ...failMeta, lastReadDay: today() } : failMeta)
       } catch { /* cache write is best-effort */ }
       return _jobs
     }
