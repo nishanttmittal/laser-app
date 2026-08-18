@@ -219,22 +219,23 @@ function BySize({ jobs, cfg, mo }) {
   return (
     <div>
       <h2>By size ({rows.length})</h2>
-      <div className="note">Shows the <b>size</b> read from the file name. <span className="warn">Unlabelled</span> = file names with no readable size — fix them on the Fix sizes tab.</div>
+      <div className="note"><b>Sec/pc</b> is the real measured cutting time for the dates picked above — type it into a quote line's <b>Cut sec/pc</b> to price from that period. Size is read from the file name; <span className="warn">Unlabelled</span> = no readable size — fix on the Fix sizes tab.</div>
       <div className="tbl">
-        <div className="tr th sz4"><span>Size</span><span>Pieces</span><span>₹/pc</span><span>Margin/pc</span></div>
+        <div className="tr th sz5"><span>Size</span><span>Pieces</span><span>Sec/pc</span><span>₹/pc</span><span>Margin/pc</span></div>
         {rows.map((s) => {
           const spp = s.secPerPiece || 0
           const chgPc = (spp / 60) * charge
           const costPc = (spp / 60) * mo.costPerBillMin
           const cat = catBySize[s.sizeKey]
           return (
-            <div className="tr sz4" key={s.sizeKey}>
+            <div className="tr sz5" key={s.sizeKey}>
               <span className={'szcell' + (s.hasSize ? '' : ' isname')}>
                 {cat && cat.photo && <img className="szthumb" src={cat.photo} alt="" />}
                 {!cat && <i className={'dot' + (s.hasSize ? '' : ' warn')} />}
                 {s.sizeKey}{cat && cat.name ? <span style={{ opacity: 0.7 }}> · {cat.name}</span> : ''}
               </span>
               <span>{fmt(s.pieces)}</span>
+              <span>{spp ? spp.toFixed(2) : '—'}</span>
               <span>{'₹' + chgPc.toFixed(2)}</span>
               <span style={{ color: chgPc - costPc >= 0 ? '#34d399' : '#f87171' }}>{'₹' + (chgPc - costPc).toFixed(2)}</span>
             </div>
@@ -1397,7 +1398,8 @@ function StaffMeter({ user }) {
 export default function App() {
   const [tab, setTab] = useState('Quote')
   const [period, setPeriod] = useState('month')
-  const [customDate, setCustomDate] = useState('')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [core, setCore] = useState(null)
   const [jobs, setJobs] = useState(null)
   const [sizeMap, setSizeMap] = useState({})
@@ -1428,9 +1430,16 @@ export default function App() {
   const mappedJobs = useMemo(() => tagJobs(enrichJobs(jobs || [], sizeMap), catIdx), [jobs, sizeMap, catIdx])
   const mo = useMonthly(core?.days || [], mappedJobs, core?.cfg || {})
   const todayY = businessYmd()
-  const range = useMemo(() => customDate
-    ? { from: +customDate.replace(/-/g, ''), to: +customDate.replace(/-/g, '') }
-    : periodRange(period, todayY), [customDate, period, todayY])
+  const customRange = !!(customFrom || customTo)
+  const maxIso = `${String(todayY).slice(0, 4)}-${String(todayY).slice(4, 6)}-${String(todayY).slice(6, 8)}`
+  const range = useMemo(() => {
+    if (!customRange) return periodRange(period, todayY)
+    // One date alone = that single day. Dates entered in the wrong order are swapped
+    // rather than returning an empty range (a blank screen reads as "app broken").
+    const a = +(customFrom || customTo).replace(/-/g, '')
+    const b = +(customTo || customFrom).replace(/-/g, '')
+    return { from: Math.min(a, b), to: Math.max(a, b) }
+  }, [customRange, customFrom, customTo, period, todayY])
   const vdays = useMemo(() => filterDaysByRange(core?.days || [], range), [core?.days, range])
   const vjobs = useMemo(() => mappedJobs.filter((j) => {
     const d = +j.day
@@ -1460,9 +1469,19 @@ export default function App() {
       {showPeriod && (
         <div className="periodbar">
           {PERIODS.map(([k, l]) => (
-            <button key={k} className={!customDate && period === k ? 'on' : ''} onClick={() => { setPeriod(k); setCustomDate('') }}>{l}</button>
+            <button key={k} className={!customRange && period === k ? 'on' : ''} onClick={() => { setPeriod(k); setCustomFrom(''); setCustomTo('') }}>{l}</button>
           ))}
-          <input type="date" className={'datepick' + (customDate ? ' on' : '')} value={customDate} max={`${String(todayY).slice(0,4)}-${String(todayY).slice(4,6)}-${String(todayY).slice(6,8)}`} onChange={(e) => setCustomDate(e.target.value)} title="Pick a specific day" />
+          <div className="daterange">
+            <label className={'datepick' + (customFrom ? ' on' : '')}>
+              <span>From</span>
+              <input type="date" value={customFrom} max={maxIso} onChange={(e) => setCustomFrom(e.target.value)} />
+            </label>
+            <label className={'datepick' + (customTo ? ' on' : '')}>
+              <span>To</span>
+              <input type="date" value={customTo} max={maxIso} onChange={(e) => setCustomTo(e.target.value)} />
+            </label>
+            {customRange && <button className="clearrange" onClick={() => { setCustomFrom(''); setCustomTo('') }} title="Clear dates">✕</button>}
+          </div>
         </div>
       )}
       <main>

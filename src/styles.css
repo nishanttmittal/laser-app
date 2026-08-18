@@ -71,6 +71,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   border-bottom: 1px solid var(--line); font-size: 15px; align-items: center; }
 .tr.wide { grid-template-columns: 1.6fr .8fr .9fr .7fr .9fr 1fr; }
 .tr.sz4 { grid-template-columns: 1.7fr .8fr 1fr 1.1fr; }
+.tr.sz5 { grid-template-columns: 1.5fr .8fr .8fr .9fr 1fr; }
 .tr:last-child { border-bottom: 0; }
 .tr:not(.th):active { background: var(--panel2); }
 .tr.th { position: sticky; top: 0; background: var(--panel2); color: var(--faint);
@@ -125,9 +126,17 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .periodbar button { flex: 1; min-width: 64px; padding: 8px 6px; border: 1px solid var(--line);
   background: var(--panel2); color: var(--mut); border-radius: 9px; font-size: 12px; font-weight: 600; }
 .periodbar button.on { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,.10); }
-.periodbar .datepick { flex: 1; min-width: 120px; padding: 7px 8px; border: 1px solid var(--line);
+/* From–To range picker: labelled so the two boxes can't be mixed up on a phone. */
+.periodbar .daterange { display: flex; gap: 6px; align-items: stretch; width: 100%; }
+.periodbar .datepick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px; border: 1px solid var(--line);
   background: var(--panel2); color: var(--mut); border-radius: 9px; font-size: 12px; font-weight: 600; }
+.periodbar .datepick > span { flex: none; color: var(--faint); }
+.periodbar .datepick input { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; padding: 0; }
 .periodbar .datepick.on { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,.10); }
+.periodbar .clearrange { flex: none; min-width: 40px; padding: 7px 10px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--mut); border-radius: 9px; font-size: 13px; font-weight: 700; }
 
 .todaystrip { background: var(--panel2); border: 1px dashed var(--line); border-radius: 10px;
   padding: 9px 12px; font-size: 13px; color: var(--mut); margin: 0 0 12px; }
