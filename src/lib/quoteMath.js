@@ -87,6 +87,16 @@ export function computeLine(input = {}) {
   // per BILLABLE minute, so raw cut minutes alone understate what the job consumes).
   const setupLoadPct = Math.max(0, num(input.setupLoadPct))
   const billedSecPerPiece = secPerPiece * (1 + setupLoadPct / 100)
+  // One-time work per part: the size change on the machine plus, for a brand-new part,
+  // nesting/programming. It happens once whatever the quantity, so it is spread over the
+  // order — which is exactly why small orders were being underquoted. Minutes come from
+  // the owner's own Admin rates (40 min size change, 25 min programming), not a new guess.
+  // An absent setupType means 'none' so a quote saved before this can never inflate itself.
+  const setupChangeMin =
+    input.setupType === 'dimension' ? Math.max(0, num(input.dimensionChangeMin, 40)) :
+    input.setupType === 'length' ? Math.max(0, num(input.lengthChangeMin, 1)) : 0
+  const programmingMin = input.newPart ? Math.max(0, num(input.programmingMin, 25)) : 0
+  const setupMin = setupChangeMin + programmingMin
   const manualCutPrice = input.cutPricePerPiece !== '' && input.cutPricePerPiece != null
     ? Math.max(0, num(input.cutPricePerPiece))
     : null
@@ -103,8 +113,12 @@ export function computeLine(input = {}) {
   // the loaded time, whatever we chose to charge.
   const cuttingPerPc = manualCutPrice == null ? (billedSecPerPiece / 60) * cutRatePerMin : manualCutPrice
   const cutCostPerPc = (billedSecPerPiece / 60) * cutCostPerMin
-  const pricePerPc = materialPerPc + cuttingPerPc
-  const costPerPc = materialPerPc + cutCostPerPc
+  // setupMin is already MINUTES and the rates are per MINUTE — no /60 here (that division
+  // belongs to the cutting line, where the input is seconds).
+  const setupPerPc = qty > 0 ? (setupMin * cutRatePerMin) / qty : 0
+  const setupCostPerPc = qty > 0 ? (setupMin * cutCostPerMin) / qty : 0
+  const pricePerPc = materialPerPc + cuttingPerPc + setupPerPc
+  const costPerPc = materialPerPc + cutCostPerPc + setupCostPerPc
   const amount = pricePerPc * qty
   const costKnown = secPerPiece > 0
   const estimatedCost = costKnown ? costPerPc * qty : null
@@ -131,6 +145,11 @@ export function computeLine(input = {}) {
     secPerPiece,
     setupLoadPct,
     billedSecPerPiece,
+    setupType: input.setupType || 'none',
+    newPart: !!input.newPart,
+    setupMin,
+    setupPerPc,
+    setupCostPerPc,
     cutRatePerMin,
     cutCostPerMin,
     cutPricePerPiece: manualCutPrice,
@@ -185,8 +204,10 @@ export function computeQuote(lines, gstPct = 18, defaults = {}) {
   // Drives the "material supplied by customer" wording that MUST appear on any quote
   // where material isn't charged, so the customer can never read cutting-only as all-in.
   const customerMaterialLines = computedLines.filter((line) => line.materialByCustomer).length
+  const setupTotal = computedLines.reduce((sum, line) => sum + line.setupPerPc * line.qty, 0)
   return {
     lines: computedLines,
+    setupTotal: round2(setupTotal),
     customerMaterialLines,
     materialBasis: !customerMaterialLines ? 'unico'
       : customerMaterialLines === computedLines.length ? 'customer' : 'mixed',

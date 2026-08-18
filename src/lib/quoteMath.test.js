@@ -199,3 +199,46 @@ test('uplift flows from quote defaults into every line and lifts the total', () 
   const jobLoaded = computeQuote([part], 18, { ...opts, materialByCustomer: true, setupLoadPct: 50 })
   assert.equal(round(jobLoaded.subtotal), round(jobPlain.subtotal * 1.5))
 })
+
+test('per-order setup is spread over the quantity, so small orders stop being underquoted', () => {
+  const base = { name: 'Leg', section: '40x20', thickness: 1.2, length: 500, secPerPiece: 10,
+    pipeRate: 80, cutRatePerMin: 40, cutCostPerMin: 25, dimensionChangeMin: 40, setupType: 'dimension' }
+  const small = computeLine({ ...base, qty: 20 })
+  const big = computeLine({ ...base, qty: 1000 })
+
+  // 40 min x Rs40/min = Rs1,600 of setup, however many pieces
+  assert.equal(round(small.setupPerPc * small.qty), 1600)
+  assert.equal(round(big.setupPerPc * big.qty), 1600)
+  // which is Rs80/pc on 20 pieces but only Rs1.60 on 1000 - the whole point
+  assert.equal(round(small.setupPerPc), 80)
+  assert.equal(round(big.setupPerPc), 1.6)
+  assert.ok(small.pricePerPc > big.pricePerPc)
+  // and it lands in the cost too, so margin stays honest
+  assert.equal(round(small.setupCostPerPc), round(40 * 25 / 20))
+})
+
+test('setup type picks the right minutes and a new part adds programming once', () => {
+  const base = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 100, secPerPiece: 10,
+    pipeRate: 80, cutRatePerMin: 40, dimensionChangeMin: 40, lengthChangeMin: 1, programmingMin: 25 }
+  assert.equal(computeLine({ ...base, setupType: 'dimension' }).setupMin, 40)
+  assert.equal(computeLine({ ...base, setupType: 'length' }).setupMin, 1)
+  assert.equal(computeLine({ ...base, setupType: 'none' }).setupMin, 0)
+  assert.equal(computeLine({ ...base, setupType: 'dimension', newPart: true }).setupMin, 65)
+  assert.equal(computeLine({ ...base, setupType: 'none', newPart: true }).setupMin, 25)
+})
+
+test('a line with no setupType carries no setup, so old saved quotes never inflate', () => {
+  const line = computeLine({ name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 10,
+    secPerPiece: 10, pipeRate: 80, cutRatePerMin: 40, dimensionChangeMin: 40 })
+  assert.equal(line.setupMin, 0)
+  assert.equal(line.setupPerPc, 0)
+  assert.equal(line.setupType, 'none')
+})
+
+test('setup never divides by zero on a quantity-less line', () => {
+  const line = computeLine({ name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 0,
+    secPerPiece: 10, pipeRate: 80, cutRatePerMin: 40, setupType: 'dimension', dimensionChangeMin: 40 })
+  assert.equal(line.setupPerPc, 0)
+  assert.ok(Number.isFinite(line.pricePerPc))
+  assert.equal(line.valid, false)
+})

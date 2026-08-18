@@ -21,7 +21,7 @@ const money = (value) =>
 const newId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 const blankPart = () => ({
   name: '', section: '', thickness: '', length: '', qty: '', secPerPiece: '',
-  cutPricePerPiece: '', matchSizeKey: '',
+  cutPricePerPiece: '', matchSizeKey: '', setupType: 'dimension', newPart: false,
 })
 
 function inputLine(line) {
@@ -36,6 +36,8 @@ function inputLine(line) {
     cutPricePerPiece: line.cutPricePerPiece ?? '',
     // '' = follow the quote-level material setting; 'unico' / 'customer' = this line decides.
     materialBy: line.materialBy === 'unico' || line.materialBy === 'customer' ? line.materialBy : '',
+    setupType: ['dimension', 'length', 'none'].includes(line.setupType) ? line.setupType : 'none',
+    newPart: !!line.newPart,
     matchSizeKey: line.matchSizeKey || '',
   }
 }
@@ -91,8 +93,11 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     cutRatePerMin: settings.cutRatePerMin,
     cutCostPerMin: mo.costPerBillMin || 0,
     setupLoadPct: settings.setupLoadPct,
+    dimensionChangeMin: cfg.setup?.dimensionChangeMin ?? 40,
+    lengthChangeMin: cfg.setup?.lengthChangeMin ?? 1,
+    programmingMin: cfg.programmingMin ?? 25,
     materialByCustomer,
-  }), [lines, settings, mo.costPerBillMin, materialByCustomer])
+  }), [lines, settings, mo.costPerBillMin, materialByCustomer, cfg])
 
   useEffect(() => {
     let active = true
@@ -469,12 +474,24 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
                     <option value="customer">Customer supplies</option>
                   </select>
                 </label>
+                <label>Setup
+                  <select value={lines[index].setupType} onChange={(event) => updateLine(lines[index].id, 'setupType', event.target.value)}>
+                    <option value="dimension">New size (+{cfg.setup?.dimensionChangeMin ?? 40} min)</option>
+                    <option value="length">New length (+{cfg.setup?.lengthChangeMin ?? 1} min)</option>
+                    <option value="none">No setup</option>
+                  </select>
+                </label>
+                <label className="chkfield">
+                  <span>New part</span>
+                  <input type="checkbox" checked={!!lines[index].newPart} onChange={(event) => updateLine(lines[index].id, 'newPart', event.target.checked)} />
+                </label>
               </div>
               <div className="quote-line-summary">
                 <span>{line.billedWeightKg.toFixed(3)} kg/pc</span>
                 <span>{line.materialByCustomer ? 'Material by customer' : `Material ${money(line.materialPerPc)}`}</span>
                 <span>Cut {money(line.cuttingPerPc)}{line.setupLoadPct > 0 && line.cutPricePerPiece == null && line.secPerPiece > 0
                   ? ` (${line.secPerPiece}s + ${line.setupLoadPct}% = ${line.billedSecPerPiece.toFixed(1)}s)` : ''}</span>
+                {line.setupMin > 0 && <span>Setup {money(line.setupMin * Number(settings.cutRatePerMin || 0))} ÷ {line.qty || 0} = {money(line.setupPerPc)}/pc</span>}
                 <strong>{money(line.pricePerPc)}/pc · {money(line.amount)}</strong>
               </div>
               {lines[index].matchSizeKey && <div className="quote-match">Cut time from {lines[index].matchSizeKey}</div>}
@@ -486,6 +503,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
       </section>
 
       <section className="quote-section totals-band">
+        {totals.setupTotal > 0 && <div><span>of which one-time setup</span><strong>{money(totals.setupTotal)}</strong></div>}
         <div><span>Subtotal</span><strong>{money(totals.subtotal)}</strong></div>
         <div><span>GST ({totals.gstPct}%)</span><strong>{money(totals.gst)}</strong></div>
         <div className="grand-total"><span>Grand total</span><strong>{money(totals.total)}</strong></div>

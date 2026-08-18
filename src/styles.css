@@ -401,7 +401,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .quote-line.invalid { border-color: rgba(248,113,113,.65); }
 .quote-line-head { display: flex; gap: 8px; align-items: center; }
 .quote-line-head input { font-size: 15px; font-weight: 700; }
-.line-fields { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 10px; }
+.line-fields { grid-template-columns: repeat(8, minmax(0, 1fr)); margin-top: 10px; }
 .quote-line-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-top: 11px;
   color: var(--mut); font-family: var(--mono); font-size: 11px; }
 .quote-line-summary strong { margin-left: auto; color: var(--green); font-size: 13px; }
@@ -458,3 +458,7 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
   .program-metrics > div:nth-child(2n) { border-right: 0; }
   .machine-evidence { flex-direction: column; gap: 3px; }
 }
+
+/* per-line "New part" toggle: a checkbox that has to sit in a label-column grid */
+.quote-fields .chkfield { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.quote-fields .chkfield input { width: 20px; height: 20px; flex: 0 0 auto; padding: 0; }
