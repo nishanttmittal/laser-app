@@ -24,7 +24,7 @@ const blankPart = () => ({
   cutPricePerPiece: '', matchSizeKey: '', setupType: 'dimension', newPart: false,
 })
 
-function inputLine(line) {
+function inputLine(line, fallbackSetup = 'none') {
   return {
     id: line.id || newId('line'),
     name: line.name || '',
@@ -36,7 +36,7 @@ function inputLine(line) {
     cutPricePerPiece: line.cutPricePerPiece ?? '',
     // '' = follow the quote-level material setting; 'unico' / 'customer' = this line decides.
     materialBy: line.materialBy === 'unico' || line.materialBy === 'customer' ? line.materialBy : '',
-    setupType: ['dimension', 'length', 'none'].includes(line.setupType) ? line.setupType : 'none',
+    setupType: ['dimension', 'length', 'none'].includes(line.setupType) ? line.setupType : fallbackSetup,
     newPart: !!line.newPart,
     matchSizeKey: line.matchSizeKey || '',
   }
@@ -52,15 +52,23 @@ function downloadBlob(blob, filename) {
 }
 
 export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
+  // Centrally managed factory policy — ALWAYS from Admin, never from a remembered device
+  // copy. A device holding an old ₹40/min would otherwise keep quoting it after the rate
+  // was raised in Admin.
+  const managedRate = cfg.chargePerMin ?? 40
+  const minOrderCharge = cfg.minOrderCharge ?? 0
+  const rejectionPct = cfg.rejectionPct ?? 0
   const initialDefaults = {
     pipeRate: cfg.quoteDefaults?.pipeRate ?? cfg.material?.ratePerKgMS ?? 80,
     wastagePct: cfg.quoteDefaults?.wastagePct ?? 5,
     density: cfg.quoteDefaults?.density ?? 7.85,
     gstPct: cfg.quoteDefaults?.gstPct ?? 18,
-    cutRatePerMin: cfg.chargePerMin ?? 40,
     setupLoadPct: cfg.quoteDefaults?.setupLoadPct ?? 50,
   }
-  const [settings, setSettings] = useState(() => loadLocalQuoteDefaults(initialDefaults))
+  const [settings, setSettings] = useState(() => ({
+    ...loadLocalQuoteDefaults(initialDefaults),
+    cutRatePerMin: managedRate,   // seeded from Admin on every mount, never restored
+  }))
   const [customer, setCustomer] = useState({ id: '', name: '', phone: '' })
   const [notes, setNotes] = useState('')
   const [quoteId, setQuoteId] = useState('')
@@ -96,8 +104,10 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     dimensionChangeMin: cfg.setup?.dimensionChangeMin ?? 40,
     lengthChangeMin: cfg.setup?.lengthChangeMin ?? 1,
     programmingMin: cfg.programmingMin ?? 25,
+    rejectionPct,
+    minOrderCharge,
     materialByCustomer,
-  }), [lines, settings, mo.costPerBillMin, materialByCustomer, cfg])
+  }), [lines, settings, mo.costPerBillMin, materialByCustomer, cfg, rejectionPct, minOrderCharge])
 
   useEffect(() => {
     let active = true
@@ -116,7 +126,9 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
   }, [])
 
   useEffect(() => {
-    try { saveLocalQuoteDefaults(settings) } catch { /* private mode: quote still works in memory */ }
+    // eslint-disable-next-line no-unused-vars
+    const { cutRatePerMin, ...remembered } = settings   // managed rate is never remembered
+    try { saveLocalQuoteDefaults(remembered) } catch { /* private mode: quote still works in memory */ }
   }, [settings])
 
   const rematch = (part) => {
@@ -128,12 +140,16 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
   }
 
   const addParts = (parts) => {
-    const added = parts.map((part) => inputLine(rematch({ ...part, section: normalizeSection(part.section) })))
+    const added = parts.map((part) => inputLine(rematch({ ...part, section: normalizeSection(part.section) }), 'dimension'))
     setLines((current) => [...current, ...added])
     const unmatched = added.filter((part) => !(Number(part.secPerPiece) > 0)).length
-    setStatus(unmatched
+    const setupEach = (cfg.setup?.dimensionChangeMin ?? 40) * (Number(managedRate) || 0)
+    const setupNote = added.length && setupEach
+      ? ` Each carries a New size setup of ${money(setupEach)} — set any that share an existing setup to "No setup".`
+      : ''
+    setStatus((unmatched
       ? `${added.length} part${added.length === 1 ? '' : 's'} added. Enter cutting time or cutting price for ${unmatched} unmatched part${unmatched === 1 ? '' : 's'}.`
-      : `${added.length} part${added.length === 1 ? '' : 's'} added with machine cutting history.`)
+      : `${added.length} part${added.length === 1 ? '' : 's'} added with machine cutting history.`) + setupNote)
   }
 
   const addDraft = () => {
@@ -320,7 +336,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
       setupLoadPct: quote.setupLoadPct ?? 0,
     })
     setMaterialByCustomer(!!quote.materialByCustomer)
-    setLines((quote.lines || []).map(inputLine))
+    setLines((quote.lines || []).map((line) => inputLine(line, 'none')))  // legacy quotes reprice as quoted
     setNotes(quote.notes || '')
     setStatus(`Reopened quote for ${quote.customerName}.`)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -381,6 +397,11 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
           <label>Cut ₹/min<input type="number" inputMode="decimal" min="0" value={settings.cutRatePerMin} onChange={(event) => setSettings({ ...settings, cutRatePerMin: event.target.value })} /></label>
           <label>GST %<input type="number" inputMode="decimal" min="0" value={settings.gstPct} onChange={(event) => setSettings({ ...settings, gstPct: event.target.value })} /></label>
           <label>Setup &amp; loading %<input type="number" inputMode="decimal" min="0" value={settings.setupLoadPct} onChange={(event) => setSettings({ ...settings, setupLoadPct: event.target.value })} /></label>
+        </div>
+        <div className="note">
+          Cut ₹/min is the <b>current Admin rate ({money(managedRate)}/min)</b> — change it here only to override this one quote.
+          {minOrderCharge > 0 && <> Minimum order <b>{money(minOrderCharge)}</b>.</>}
+          {rejectionPct > 0 && <> Reject allowance <b>{rejectionPct}%</b>, so cutting and steel are quoted on the pieces actually consumed.</>}
         </div>
         <div className="note">Machine cutting time is <b>machine-on only</b> — it excludes loading tubes, size changes, programming and QC. <b>{Number(settings.setupLoadPct) || 0}%</b> is added on top, so {Number(settings.setupLoadPct) === 50 ? '10 sec/pc of cutting bills as 15 sec' : `10 sec/pc of cutting bills as ${(10 * (1 + (Number(settings.setupLoadPct) || 0) / 100)).toFixed(1)} sec`}. Set 0 to bill raw cutting time. A cut ₹/pc you type yourself is never uplifted.</div>
       </section>
@@ -505,6 +526,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
 
       <section className="quote-section totals-band">
         {totals.setupTotal > 0 && <div><span>of which one-time setup</span><strong>{money(totals.setupTotal)}</strong></div>}
+        {totals.minApplied && <div><span>Parts total {money(totals.linesSubtotal)} — minimum order applied</span><strong>{money(totals.minOrderCharge)}</strong></div>}
         <div><span>Subtotal</span><strong>{money(totals.subtotal)}</strong></div>
         <div><span>GST ({totals.gstPct}%)</span><strong>{money(totals.gst)}</strong></div>
         <div className="grand-total"><span>Grand total</span><strong>{money(totals.total)}</strong></div>

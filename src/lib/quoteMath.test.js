@@ -260,3 +260,60 @@ test('a mixed quote round-trips: the per-line material override survives save an
   assert.equal(reopened.lines[1].materialByCustomer, false, 'the overridden line must not flip to job work')
   assert.equal(round(reopened.subtotal), round(saved.subtotal), 'a reopened quote must reprice identically')
 })
+
+test('minimum order applies once to the whole quote, not per line', () => {
+  const opts = { pipeRate: 80, cutRatePerMin: 40, cutCostPerMin: 29.62, minOrderCharge: 500 }
+  const tiny = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 1, secPerPiece: 1,
+    materialBy: 'customer' }
+
+  const one = computeQuote([tiny], 18, opts)
+  assert.equal(one.minApplied, true)
+  assert.equal(one.subtotal, 500, 'a job below the floor is charged the floor')
+  assert.ok(one.linesSubtotal < 1, 'the raw line value is still reported')
+  assert.equal(one.total, round(500 * 1.18), 'GST is charged on the floor, not the raw value')
+
+  // two tiny lines must not be charged 2 x the minimum
+  const two = computeQuote([tiny, { ...tiny, name: 'B' }], 18, opts)
+  assert.equal(two.subtotal, 500)
+
+  // a quote already above the floor is untouched
+  const big = computeQuote([{ ...tiny, qty: 1000, secPerPiece: 10 }], 18, opts)
+  assert.equal(big.minApplied, false)
+  assert.equal(big.subtotal, big.linesSubtotal)
+})
+
+test('no minimum configured leaves old quotes exactly as they were', () => {
+  const opts = { pipeRate: 80, cutRatePerMin: 40, cutCostPerMin: 29.62 }
+  const q = computeQuote([{ name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 1,
+    secPerPiece: 1, materialBy: 'customer' }], 18, opts)
+  assert.equal(q.minApplied, false)
+  assert.equal(q.subtotal, q.linesSubtotal)
+})
+
+test('reject allowance scales cutting and steel, because we really consume them', () => {
+  const base = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 100,
+    secPerPiece: 10, pipeRate: 80, wastagePct: 5, cutRatePerMin: 40, cutCostPerMin: 29.62 }
+  const none = computeLine(base)
+  const rej = computeLine({ ...base, rejectionPct: 2 })
+  const y = 1 / 0.98
+
+  assert.equal(round(rej.cuttingPerPc), round(none.cuttingPerPc * y))
+  assert.equal(round(rej.materialPerPc), round(none.materialPerPc * y))
+  assert.equal(round(rej.cutCostPerPc), round(none.cutCostPerPc * y))
+  // absent = old behaviour, so saved quotes don't move
+  assert.equal(none.billedWeightKg, computeLine({ ...base, rejectionPct: 0 }).billedWeightKg)
+})
+
+test('a cut time from a clearly different tube is no longer offered', () => {
+  const sizes = [{ sizeKey: '30x15 t1.2', secPerPiece: 99 }]
+  assert.equal(nearestSecPerPiece('40x20', 1.2, sizes), null, '25% wrong section must not price a part')
+
+  // a genuinely comparable tube is still matched
+  const close = nearestSecPerPiece('40x20', 1.2, [{ sizeKey: '38x20 t1.2', secPerPiece: 12 }])
+  assert.ok(close && close.secPerPiece === 12)
+  assert.equal(close.confidence, 'nearest')
+
+  // exact still wins outright
+  const exact = nearestSecPerPiece('40x20', 1.2, [{ sizeKey: '40x20 t1.2', secPerPiece: 7 }])
+  assert.equal(exact.confidence, 'exact')
+})

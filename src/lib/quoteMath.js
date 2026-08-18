@@ -36,6 +36,11 @@ function sizeParts(size) {
   }
 }
 
+// How far a cut-time match may sit from the part before it stops being evidence.
+// 0.08 keeps a ~5% dimension difference (e.g. 40x20 vs 38x20 — genuinely comparable tube)
+// and rejects a 25% one. Raising it re-opens silent mispricing; change with a test.
+export const NEAREST_MAX_SCORE = 0.08
+
 export function nearestSecPerPiece(section, thickness, sizes) {
   const wantedSection = normalizeSection(section)
   const wanted = profile(wantedSection)
@@ -66,7 +71,11 @@ export function nearestSecPerPiece(section, thickness, sizes) {
     }
   }
 
-  return best && best.score <= 0.35 ? best : null
+  // 0.35 accepted a 25%-wrong section (40x20 silently priced off 30x15 history) with no
+  // sign to the owner. A rate this far from the part is a guess, not evidence, so it is no
+  // longer offered at all; anything above `EXACT_SCORE` is flagged 'nearest' and the screen
+  // names the size it came from, so the owner can accept or type a real time.
+  return best && best.score <= NEAREST_MAX_SCORE ? best : null
 }
 
 export function computeLine(input = {}) {
@@ -105,14 +114,21 @@ export function computeLine(input = {}) {
   // would make every job-work quote report a loss it isn't making.
   const materialByCustomer = !!input.materialByCustomer
 
+  // Reject allowance: to hand over `qty` good pieces we must cut a few more, and we consume
+  // the tube for them too. Both the cutting time and the steel scale by the yield factor.
+  // Defaults to 0 so a quote saved before this reprices exactly as it was quoted.
+  const rejectionPct = Math.min(99, Math.max(0, num(input.rejectionPct)))
+  const yieldFactor = 1 / (1 - rejectionPct / 100)
+
   const grams = tubeWeightGrams({ section, thickness, length, density })
   const baseWeightKg = grams == null ? 0 : grams / 1000
-  const billedWeightKg = baseWeightKg * (1 + wastagePct / 100)
+  const billedWeightKg = baseWeightKg * (1 + wastagePct / 100) * yieldFactor
   const materialPerPc = materialByCustomer ? 0 : billedWeightKg * pipeRate
   // A typed ₹/pc is the owner's stated final price — never uplift that. Cost always uses
   // the loaded time, whatever we chose to charge.
-  const cuttingPerPc = manualCutPrice == null ? (billedSecPerPiece / 60) * cutRatePerMin : manualCutPrice
-  const cutCostPerPc = (billedSecPerPiece / 60) * cutCostPerMin
+  const cutMinPerPc = (billedSecPerPiece / 60) * yieldFactor
+  const cuttingPerPc = manualCutPrice == null ? cutMinPerPc * cutRatePerMin : manualCutPrice
+  const cutCostPerPc = cutMinPerPc * cutCostPerMin
   // setupMin is already MINUTES and the rates are per MINUTE — no /60 here (that division
   // belongs to the cutting line, where the input is seconds).
   const setupPerPc = qty > 0 ? (setupMin * cutRatePerMin) / qty : 0
@@ -198,9 +214,16 @@ export function computeQuote(lines, gstPct = 18, defaults = {}) {
   const estimatedCost = costKnown
     ? computedLines.reduce((sum, line) => sum + line.estimatedCost, 0)
     : null
+  // Minimum order: a job below it isn't worth putting on the machine. Applied ONCE to the
+  // whole quotation, never per line — per line it would multiply on a multi-part order.
+  // Defaults to 0 so quotes saved before this reprice exactly as quoted.
+  const minOrderCharge = Math.max(0, num(defaults.minOrderCharge))
+  const minApplied = computedLines.length > 0 && subtotal > 0 && subtotal < minOrderCharge
+  const chargedSubtotal = minApplied ? minOrderCharge : subtotal
+
   const gstRate = Math.max(0, num(gstPct))
-  const gst = subtotal * gstRate / 100
-  const total = subtotal + gst
+  const gst = chargedSubtotal * gstRate / 100
+  const total = chargedSubtotal + gst
   // Drives the "material supplied by customer" wording that MUST appear on any quote
   // where material isn't charged, so the customer can never read cutting-only as all-in.
   const customerMaterialLines = computedLines.filter((line) => line.materialByCustomer).length
@@ -211,12 +234,15 @@ export function computeQuote(lines, gstPct = 18, defaults = {}) {
     customerMaterialLines,
     materialBasis: !customerMaterialLines ? 'unico'
       : customerMaterialLines === computedLines.length ? 'customer' : 'mixed',
-    subtotal: round2(subtotal),
+    subtotal: round2(chargedSubtotal),
+    linesSubtotal: round2(subtotal),
+    minOrderCharge,
+    minApplied,
     gstPct: gstRate,
     gst: round2(gst),
     total: round2(total),
     estimatedCost: costKnown ? round2(estimatedCost) : null,
-    estimatedMargin: costKnown ? round2(subtotal - estimatedCost) : null,
+    estimatedMargin: costKnown ? round2(chargedSubtotal - estimatedCost) : null,
     costKnown,
     valid: computedLines.length > 0 && computedLines.every((line) => line.valid),
   }
