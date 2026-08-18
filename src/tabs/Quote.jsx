@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { loadQuoteWorkspace, saveQuoteCustomer, saveQuoteProduct, saveQuoteRecord } from '../firebase.js'
 import { groupBySize } from '../lib/sizemap.js'
 import { businessDateKey } from '../lib/time.js'
-import { computeQuote, nearestSecPerPiece, normalizeSection } from '../lib/quoteMath.js'
+import { computeQuote, materialBasisNote, nearestSecPerPiece, normalizeSection } from '../lib/quoteMath.js'
 import { parseDelimited, parseSpreadsheetFile } from '../lib/parseUpload.js'
 import { buildQuotePDF } from '../lib/quotePdf.js'
 import { buildQuoteProgramChoices, quoteDraftFromProgram, updateExactProgramField } from '../lib/quotePrograms.js'
@@ -34,6 +34,8 @@ function inputLine(line) {
     qty: line.qty || '',
     secPerPiece: line.secPerPiece || '',
     cutPricePerPiece: line.cutPricePerPiece ?? '',
+    // '' = follow the quote-level material setting; 'unico' / 'customer' = this line decides.
+    materialBy: line.materialBy === 'unico' || line.materialBy === 'customer' ? line.materialBy : '',
     matchSizeKey: line.matchSizeKey || '',
   }
 }
@@ -67,6 +69,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
   const [busy, setBusy] = useState('')
   const [manifest, setManifest] = useState(null)
   const [programSearch, setProgramSearch] = useState('')
+  const [materialByCustomer, setMaterialByCustomer] = useState(false)
 
   const knownSizes = useMemo(() =>
     groupBySize(jobs).filter((size) => size.hasSize && size.secPerPiece > 0), [jobs])
@@ -86,7 +89,8 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     density: settings.density,
     cutRatePerMin: settings.cutRatePerMin,
     cutCostPerMin: mo.costPerBillMin || 0,
-  }), [lines, settings, mo.costPerBillMin])
+    materialByCustomer,
+  }), [lines, settings, mo.costPerBillMin, materialByCustomer])
 
   useEffect(() => {
     let active = true
@@ -183,6 +187,8 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     customerPhone: customer.phone.trim(),
     date: businessDateKey(),
     lines: totals.lines,
+    materialByCustomer,
+    materialBasis: totals.materialBasis,
     pipeRate: Number(settings.pipeRate),
     wastagePct: Number(settings.wastagePct),
     density: Number(settings.density),
@@ -275,10 +281,11 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
     const text = [
       `UNICO Laser Cutting Quote`,
       `Customer: ${record.customerName}`,
-      ...record.lines.map((line) => `${line.name}: ${line.qty} pcs x ${money(line.pricePerPc)} = ${money(line.amount)}`),
+      ...record.lines.map((line) => `${line.name}: ${line.qty} pcs x ${money(line.pricePerPc)} = ${money(line.amount)}${line.materialByCustomer ? ' (cutting only)' : ''}`),
       `Subtotal: ${money(record.subtotal)}`,
       `GST (${record.gstPct}%): ${money(record.gst)}`,
       `Total: ${money(record.total)}`,
+      ...(materialBasisNote(record.materialBasis) ? [materialBasisNote(record.materialBasis)] : []),
     ].join('\n')
     try {
       if (navigator.share) await navigator.share({ title: 'UNICO Laser Cutting Quote', text })
@@ -301,6 +308,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
       gstPct: quote.gstPct ?? initialDefaults.gstPct,
       cutRatePerMin: quote.cutRatePerMin ?? initialDefaults.cutRatePerMin,
     })
+    setMaterialByCustomer(!!quote.materialByCustomer)
     setLines((quote.lines || []).map(inputLine))
     setNotes(quote.notes || '')
     setStatus(`Reopened quote for ${quote.customerName}.`)
@@ -310,6 +318,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
   const clearQuote = () => {
     setQuoteId('')
     setCustomer({ id: '', name: '', phone: '' })
+    setMaterialByCustomer(false) // every new quote starts on full supply, never inherits job work
     setLines([])
     setNotes('')
     setStatus('')
@@ -340,6 +349,15 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
 
       <section className="quote-section">
         <h2>Pricing basis</h2>
+        <div className="matbasis">
+          <button type="button" className={materialByCustomer ? '' : 'on'}
+            onClick={() => setMaterialByCustomer(false)}>UNICO supplies material</button>
+          <button type="button" className={materialByCustomer ? 'on' : ''}
+            onClick={() => setMaterialByCustomer(true)}>Customer supplies (job work)</button>
+        </div>
+        {materialByCustomer && (
+          <div className="note">Cutting charges only — material is <b>not</b> priced. Weight is still shown so the customer knows how much tube to send. This prints on the quote, PDF and WhatsApp message.</div>
+        )}
         <div className="quote-fields five">
           <label>Pipe ₹/kg<input type="number" inputMode="decimal" min="0" value={settings.pipeRate} onChange={(event) => setSettings({ ...settings, pipeRate: event.target.value })} /></label>
           <label>Wastage %<input type="number" inputMode="decimal" min="0" value={settings.wastagePct} onChange={(event) => setSettings({ ...settings, wastagePct: event.target.value })} /></label>
@@ -436,10 +454,17 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
                 <label>Qty<input type="number" inputMode="numeric" value={lines[index].qty} onChange={(event) => updateLine(lines[index].id, 'qty', event.target.value)} /></label>
                 <label>Cut sec/pc<input type="number" inputMode="decimal" value={lines[index].secPerPiece} onChange={(event) => updateLine(lines[index].id, 'secPerPiece', event.target.value)} /></label>
                 <label>Or cut ₹/pc<input type="number" inputMode="decimal" value={lines[index].cutPricePerPiece ?? ''} onChange={(event) => updateLine(lines[index].id, 'cutPricePerPiece', event.target.value)} /></label>
+                <label>Material
+                  <select value={lines[index].materialBy || ''} onChange={(event) => updateLine(lines[index].id, 'materialBy', event.target.value)}>
+                    <option value="">Same as quote ({materialByCustomer ? 'customer' : 'UNICO'})</option>
+                    <option value="unico">UNICO supplies</option>
+                    <option value="customer">Customer supplies</option>
+                  </select>
+                </label>
               </div>
               <div className="quote-line-summary">
                 <span>{line.billedWeightKg.toFixed(3)} kg/pc</span>
-                <span>Material {money(line.materialPerPc)}</span>
+                <span>{line.materialByCustomer ? 'Material by customer' : `Material ${money(line.materialPerPc)}`}</span>
                 <span>Cut {money(line.cuttingPerPc)}</span>
                 <strong>{money(line.pricePerPc)}/pc · {money(line.amount)}</strong>
               </div>

@@ -346,6 +346,12 @@ h2::before { content: ''; width: 3px; height: 12px; background: var(--accent); b
 .iconbtn.danger { color: var(--red); font-size: 22px; }
 .quote-section { padding: 3px 0 14px; border-bottom: 1px solid var(--line); }
 .quote-section:last-child { border-bottom: 0; }
+/* Who supplies the tube: full supply vs job work. Big targets — it changes the price. */
+.matbasis { display: flex; gap: 8px; margin: 0 0 10px; }
+.matbasis button { flex: 1; min-width: 0; padding: 11px 8px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--mut); border-radius: 10px; font-size: 12.5px; font-weight: 600; }
+.matbasis button.on { color: var(--accent); border-color: var(--accent); background: rgba(56,189,248,.12); }
+
 .quote-fields { display: grid; gap: 10px; }
 .quote-fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .quote-fields.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }

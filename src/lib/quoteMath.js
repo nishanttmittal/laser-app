@@ -83,11 +83,15 @@ export function computeLine(input = {}) {
   const manualCutPrice = input.cutPricePerPiece !== '' && input.cutPricePerPiece != null
     ? Math.max(0, num(input.cutPricePerPiece))
     : null
+  // Job work: the customer sends their own tube, so we neither charge nor carry the
+  // material. It must leave the COST as well as the price — keeping it in the cost
+  // would make every job-work quote report a loss it isn't making.
+  const materialByCustomer = !!input.materialByCustomer
 
   const grams = tubeWeightGrams({ section, thickness, length, density })
   const baseWeightKg = grams == null ? 0 : grams / 1000
   const billedWeightKg = baseWeightKg * (1 + wastagePct / 100)
-  const materialPerPc = billedWeightKg * pipeRate
+  const materialPerPc = materialByCustomer ? 0 : billedWeightKg * pipeRate
   const cuttingPerPc = manualCutPrice == null ? (secPerPiece / 60) * cutRatePerMin : manualCutPrice
   const cutCostPerPc = (secPerPiece / 60) * cutCostPerMin
   const pricePerPc = materialPerPc + cuttingPerPc
@@ -102,7 +106,7 @@ export function computeLine(input = {}) {
   if (!(thickness > 0)) issues.push('Thickness')
   if (!(length > 0)) issues.push('Length')
   if (!(qty > 0)) issues.push('Quantity')
-  if (!(pipeRate > 0)) issues.push('Material rate')
+  if (!materialByCustomer && !(pipeRate > 0)) issues.push('Material rate')
   if (!(cuttingPerPc > 0)) issues.push('Cutting time or price')
 
   return {
@@ -119,6 +123,7 @@ export function computeLine(input = {}) {
     cutRatePerMin,
     cutCostPerMin,
     cutPricePerPiece: manualCutPrice,
+    materialByCustomer,
     baseWeightKg,
     billedWeightKg,
     materialPerPc,
@@ -135,8 +140,29 @@ export function computeLine(input = {}) {
   }
 }
 
+// A line's own `materialBy` ('unico' | 'customer') wins; anything else means "follow the
+// quote-level setting". Resolved here rather than in computeLine so a stale flag on a
+// re-opened saved line can never outrank what the quote screen currently shows.
+function resolveMaterialByCustomer(line, defaults) {
+  if (line?.materialBy === 'customer') return true
+  if (line?.materialBy === 'unico') return false
+  return !!defaults?.materialByCustomer
+}
+
+// The one sentence that keeps a job-work quote from being read as an all-in price.
+// Shared by the screen, the PDF and the WhatsApp message so all three say the same thing.
+export function materialBasisNote(basis) {
+  if (basis === 'customer') return 'Cutting charges only — material supplied by customer.'
+  if (basis === 'mixed') return 'Material supplied by customer on the parts marked "by customer"; all other parts include material.'
+  return ''
+}
+
 export function computeQuote(lines, gstPct = 18, defaults = {}) {
-  const computedLines = (lines || []).map((line) => computeLine({ ...defaults, ...line }))
+  const computedLines = (lines || []).map((line) => computeLine({
+    ...defaults,
+    ...line,
+    materialByCustomer: resolveMaterialByCustomer(line, defaults),
+  }))
   const subtotal = computedLines.reduce((sum, line) => sum + line.amount, 0)
   const costKnown = computedLines.length > 0 && computedLines.every((line) => line.costKnown)
   const estimatedCost = costKnown
@@ -145,8 +171,14 @@ export function computeQuote(lines, gstPct = 18, defaults = {}) {
   const gstRate = Math.max(0, num(gstPct))
   const gst = subtotal * gstRate / 100
   const total = subtotal + gst
+  // Drives the "material supplied by customer" wording that MUST appear on any quote
+  // where material isn't charged, so the customer can never read cutting-only as all-in.
+  const customerMaterialLines = computedLines.filter((line) => line.materialByCustomer).length
   return {
     lines: computedLines,
+    customerMaterialLines,
+    materialBasis: !customerMaterialLines ? 'unico'
+      : customerMaterialLines === computedLines.length ? 'customer' : 'mixed',
     subtotal: round2(subtotal),
     gstPct: gstRate,
     gst: round2(gst),

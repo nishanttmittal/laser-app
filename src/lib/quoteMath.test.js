@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeLine, computeQuote, nearestSecPerPiece, normalizeSection } from './quoteMath.js'
+import { computeLine, computeQuote, materialBasisNote, nearestSecPerPiece, normalizeSection } from './quoteMath.js'
 
 test('normalizeSection accepts round and rectangular owner input', () => {
   assert.equal(normalizeSection('OD 50'), 'R50')
@@ -84,4 +84,72 @@ test('nearestSecPerPiece prefers exact size and rejects distant profiles', () =>
     sizeKey: '40x20 t1.2', secPerPiece: 12, score: 0, confidence: 'exact',
   })
   assert.equal(nearestSecPerPiece('R100', 5, sizes), null)
+})
+
+test('job work: customer material drops out of price AND cost, and stops needing a rate', () => {
+  const base = { name: 'Leg', section: '40x20', thickness: 1.2, length: 500, qty: 10, secPerPiece: 10,
+    wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+  const supplied = computeLine({ ...base, pipeRate: 80 })
+  const jobWork = computeLine({ ...base, pipeRate: 0, materialByCustomer: true })
+
+  assert.equal(jobWork.valid, true, 'no material rate needed when the customer supplies tube')
+  assert.equal(jobWork.materialPerPc, 0)
+  assert.equal(jobWork.pricePerPc, jobWork.cuttingPerPc)
+  assert.equal(jobWork.costPerPc, jobWork.cutCostPerPc, 'material must leave the cost too')
+  assert.ok(jobWork.margin > 0, 'job work must not report a phantom loss')
+  // weight still computed — the customer needs to know how much tube to send
+  assert.ok(jobWork.billedWeightKg > 0)
+  assert.equal(jobWork.billedWeightKg, supplied.billedWeightKg)
+})
+
+test('a missing material rate still blocks a normal supply line', () => {
+  const line = computeLine({ name: 'Leg', section: '40x20', thickness: 1.2, length: 500, qty: 10,
+    secPerPiece: 10, cutRatePerMin: 40, pipeRate: 0 })
+  assert.equal(line.valid, false)
+  assert.ok(line.issues.includes('Material rate'))
+})
+
+test('per-line material choice overrides the quote-level default in both directions', () => {
+  const parts = [
+    { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 10, secPerPiece: 10 },
+    { name: 'B', section: '40x20', thickness: 1.2, length: 500, qty: 10, secPerPiece: 10, materialBy: 'unico' },
+  ]
+  const opts = { pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+
+  const jobWorkQuote = computeQuote(parts, 18, { ...opts, materialByCustomer: true })
+  assert.equal(jobWorkQuote.lines[0].materialByCustomer, true, 'inherits the quote default')
+  assert.equal(jobWorkQuote.lines[1].materialByCustomer, false, 'line override wins')
+  assert.equal(jobWorkQuote.materialBasis, 'mixed')
+  assert.equal(jobWorkQuote.customerMaterialLines, 1)
+
+  const supplyQuote = computeQuote(
+    [{ ...parts[0], materialBy: 'customer' }, parts[0]], 18, { ...opts, materialByCustomer: false })
+  assert.equal(supplyQuote.lines[0].materialByCustomer, true, 'line can opt out under a supply quote')
+  assert.equal(supplyQuote.lines[1].materialByCustomer, false)
+  assert.equal(supplyQuote.materialBasis, 'mixed')
+})
+
+test('materialBasis names an all-job-work and an all-supply quote', () => {
+  const part = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 10, secPerPiece: 10 }
+  const opts = { pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+  assert.equal(computeQuote([part], 18, opts).materialBasis, 'unico')
+  assert.equal(computeQuote([part], 18, { ...opts, materialByCustomer: true }).materialBasis, 'customer')
+  assert.equal(computeQuote([], 18, opts).materialBasis, 'unico', 'empty quote is not job work')
+})
+
+test('a stale materialByCustomer on a re-opened line cannot outrank the screen', () => {
+  const opts = { pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 25 }
+  const stale = { name: 'A', section: '40x20', thickness: 1.2, length: 500, qty: 10, secPerPiece: 10,
+    materialByCustomer: true }
+  const quote = computeQuote([stale], 18, opts)
+  assert.equal(quote.lines[0].materialByCustomer, false)
+  assert.ok(quote.lines[0].materialPerPc > 0)
+})
+
+test('materialBasisNote states the basis on job-work and mixed quotes, and stays silent on full supply', () => {
+  assert.match(materialBasisNote('customer'), /Cutting charges only/i)
+  assert.match(materialBasisNote('customer'), /material supplied by customer/i)
+  assert.match(materialBasisNote('mixed'), /by customer/i)
+  assert.equal(materialBasisNote('unico'), '')
+  assert.equal(materialBasisNote(undefined), '')
 })

@@ -1,3 +1,5 @@
+import { materialBasisNote } from './quoteMath.js'
+
 const A4 = { w: 595, h: 842 }
 const M = 38
 const INK = [20, 27, 39]
@@ -118,7 +120,7 @@ export async function buildQuotePDF(quote, { logoUrl = null } = {}) {
       `${safeText(line.section)} / ${Number(line.length || 0).toLocaleString('en-IN')} mm`,
       Number(line.qty || 0).toLocaleString('en-IN'),
       Number(line.billedWeightKg || 0).toFixed(3),
-      money(line.materialPerPc),
+      line.materialByCustomer ? 'by customer' : money(line.materialPerPc),
       money(line.cuttingPerPc),
       money(line.pricePerPc),
       money(line.amount),
@@ -149,6 +151,19 @@ export async function buildQuotePDF(quote, { logoUrl = null } = {}) {
   doc.setDrawColor(CYAN[0], CYAN[1], CYAN[2])
   doc.line(totalsX, y - 10, A4.w - M, y - 10)
   totalRow('Grand total', quote.total, true)
+
+  // Job-work disclosure. Printed under the total, in ink not grey, because a customer
+  // reading a cutting-only price as all-in is the expensive way for this to go wrong.
+  const basisNote = materialBasisNote(quote.materialBasis)
+  if (basisNote) {
+    ensure(46)
+    y += 6
+    color(INK)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(doc.splitTextToSize(safeText(basisNote), A4.w - M * 2), M, y)
+    y += 22
+  }
 
   if (quote.notes) {
     ensure(64)
