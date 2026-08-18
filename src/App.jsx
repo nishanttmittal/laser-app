@@ -169,15 +169,20 @@ function Dashboard({ days, cfg, mo, meta }) {
   )
 }
 
-function Jobs({ jobs }) {
+const jobMatches = (j, t) => {
+  const shownTime = displayStartTime(j)
+  return !t || (j.sizeKey + ' ' + j.file + ' ' + (j.catName || '') + ' ' + j.startTime + ' ' + shownTime + ' ' + whenStr(shownTime)).toLowerCase().includes(t)
+}
+
+// `jobs` = the runs inside the selected dates; `allJobs` = every run, used only to say
+// how many matches sit outside the range so a search can't dead-end on a blank list.
+function Jobs({ jobs, allJobs }) {
   const [q, setQ] = useState('')
-  const rows = useMemo(() => {
-    const t = q.trim().toLowerCase()
-    return (jobs || []).filter((j) => {
-      const shownTime = displayStartTime(j)
-      return !t || (j.sizeKey + ' ' + j.file + ' ' + (j.catName || '') + ' ' + j.startTime + ' ' + shownTime + ' ' + whenStr(shownTime)).toLowerCase().includes(t)
-    }).slice(0, 300)
-  }, [jobs, q])
+  const t = q.trim().toLowerCase()
+  const rows = useMemo(() => (jobs || []).filter((j) => jobMatches(j, t)).slice(0, 300), [jobs, t])
+  const elsewhere = useMemo(
+    () => (t && !rows.length ? (allJobs || []).filter((j) => jobMatches(j, t)).length : 0),
+    [t, rows.length, allJobs])
   return (
     <div>
       <h2>Jobs ({fmt((jobs || []).length)} runs)</h2>
@@ -201,6 +206,13 @@ function Jobs({ jobs }) {
         ))}
       </div>
       {rows.length === 300 && <div className="note">Showing first 300 — use search to narrow.</div>}
+      {!rows.length && (
+        <div className="note">
+          {!t ? 'No runs on the dates selected above.'
+            : elsewhere ? `No match on the dates selected above — ${fmt(elsewhere)} run(s) match on other dates. Tap All to search every day.`
+            : 'No runs match that search.'}
+        </div>
+      )}
     </div>
   )
 }
@@ -805,7 +817,7 @@ function Parts({ jobs, days, cfg, role }) {
 const Sep = () => <div className="sep" />
 
 function Production({ jobs, vjobs, cfg, mo }) {
-  return (<div><Jobs jobs={jobs} /><Sep /><BySize jobs={vjobs} cfg={cfg} mo={mo} /></div>)
+  return (<div><Jobs jobs={vjobs} allJobs={jobs} /><Sep /><BySize jobs={vjobs} cfg={cfg} mo={mo} /></div>)
 }
 function WeightCalc({ cfg }) {
   const [shape, setShape] = useState('rect')
