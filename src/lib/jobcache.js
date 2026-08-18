@@ -25,6 +25,16 @@ export function needFullRead(meta, nowMs, reconcileDays = RECONCILE_DAYS) {
   return (nowMs - meta.lastFullAt) > reconcileDays * 86400000;
 }
 
+// What the job set should be after a read.
+//   FULL reconcile (`all` given): the server set is AUTHORITATIVE and replaces the cache.
+//     Merging the cache back in would resurrect jobs deleted upstream and the 10-day
+//     reconcile would never actually reconcile — which is its whole purpose.
+//   LIGHT refresh (no `all`): only the recent window was read, so the cache still holds
+//     the older history and must be merged.
+export function jobsAfterRead({ cache = [], recent = [], all = null }) {
+  return all ? all : mergeJobs(cache, recent);
+}
+
 // Merge fresh docs into cached docs by workUuid (fresh wins; new ones added).
 export function mergeJobs(cache, fresh) {
   const byId = new Map();

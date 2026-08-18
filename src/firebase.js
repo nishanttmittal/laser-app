@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
 import { getFirestore, collection, getDocs, doc, getDoc, setDoc, query, where } from 'firebase/firestore'
-import { cutoffFromYmd, needFullRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
+import { cutoffFromYmd, needFullRead, jobsAfterRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
 import { readLargeCache, writeLargeCache } from './lib/largeCache.js'
 import { businessDateKey, businessYmd, machineYmd, normalizeJobTime } from './lib/time.js'
 
@@ -287,11 +287,11 @@ export async function loadJobs(onPartial) {
     if (full) {
       if (onPartial && partial.length) onPartial(partial) // first paint while history downloads
       const all = await fetchAllJobs()                 // full reconcile (first run / every 10 days)
-      _jobs = prepareJobs(mergeJobs(partial, all))
+      _jobs = prepareJobs(jobsAfterRead({ cache, recent, all }))
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
       lsSet(META_KEY, { lastFullAt: now, count: _jobs.length, lastReadDay: today() })
     } else {
-      _jobs = partial
+      _jobs = prepareJobs(jobsAfterRead({ cache, recent }))
       await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
       lsSet(META_KEY, { ...meta, lastReadDay: today() }) // keep lastFullAt; stamp today's read
     }

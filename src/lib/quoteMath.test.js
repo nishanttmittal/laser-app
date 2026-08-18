@@ -242,3 +242,21 @@ test('setup never divides by zero on a quantity-less line', () => {
   assert.ok(Number.isFinite(line.pricePerPc))
   assert.equal(line.valid, false)
 })
+
+test('a mixed quote round-trips: the per-line material override survives save and reopen', () => {
+  const opts = { pipeRate: 80, wastagePct: 5, density: 7.85, cutRatePerMin: 40, cutCostPerMin: 29.62 }
+  const drafted = [
+    { name: 'Inherits', section: '40x20', thickness: 1.2, length: 500, qty: 100, secPerPiece: 10 },
+    { name: 'Overrides', section: '40x20', thickness: 1.2, length: 500, qty: 100, secPerPiece: 10, materialBy: 'unico' },
+  ]
+  // what the app saves is computeQuote's lines, so the raw choice must survive computeLine
+  const saved = computeQuote(drafted, 18, { ...opts, materialByCustomer: true })
+  assert.equal(saved.lines[1].materialBy, 'unico', 'the override must be persisted, not just resolved')
+  assert.equal(saved.materialBasis, 'mixed')
+
+  // reopening feeds those saved lines back in with the quote's own saved basis
+  const reopened = computeQuote(saved.lines, 18, { ...opts, materialByCustomer: true })
+  assert.equal(reopened.lines[0].materialByCustomer, true)
+  assert.equal(reopened.lines[1].materialByCustomer, false, 'the overridden line must not flip to job work')
+  assert.equal(round(reopened.subtotal), round(saved.subtotal), 'a reopened quote must reprice identically')
+})
