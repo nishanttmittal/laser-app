@@ -297,7 +297,18 @@ export async function loadJobs(onPartial) {
     }
   } catch (e) {
     // history read failed/stalled -> at least the recent window works this open
-    if (partial && partial.length) { _jobs = partial; return _jobs }
+    if (partial && partial.length) {
+      _jobs = partial
+      // Keep what we did get, so re-opening the app doesn't re-read the same docs and
+      // burn the shared 50k/day quota. lastFullAt is deliberately NOT stamped, so the
+      // reconcile is still owed. Only claim the day's read when we already held history:
+      // on a first-ever run an empty cache would otherwise trap the user on 35 days.
+      try {
+        await writeLargeCache(CACHE_KEY, _jobs, (value) => lsSet(CACHE_KEY, value))
+        if (cache.length) lsSet(META_KEY, { ...meta, lastReadDay: today() })
+      } catch { /* cache write is best-effort */ }
+      return _jobs
+    }
     if (cache.length) { _jobs = prepareJobs(cache); return _jobs } // offline/quota -> serve cache
     throw e
   }

@@ -452,6 +452,7 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
 
       <section className="quote-section">
         <h2>Parts ({lines.length})</h2>
+        <div className="note">Setup is charged <b>once per part line</b> and divided by that line's quantity. Choose <b>No setup</b> for a repeat part that runs off a setup you are already charging on another line.</div>
         {!lines.length && <div className="quote-empty">Add a part, choose a saved product, or import a parts list.</div>}
         <div className="quote-lines">
           {totals.lines.map((line, index) => (
@@ -476,8 +477,8 @@ export default function Quote({ jobs, catalog = [], cfg, mo, userEmail }) {
                 </label>
                 <label>Setup
                   <select value={lines[index].setupType} onChange={(event) => updateLine(lines[index].id, 'setupType', event.target.value)}>
-                    <option value="dimension">New size (+{cfg.setup?.dimensionChangeMin ?? 40} min)</option>
-                    <option value="length">New length (+{cfg.setup?.lengthChangeMin ?? 1} min)</option>
+                    <option value="dimension">New size for this part (+{cfg.setup?.dimensionChangeMin ?? 40} min)</option>
+                    <option value="length">New length only (+{cfg.setup?.lengthChangeMin ?? 1} min)</option>
                     <option value="none">No setup</option>
                   </select>
                 </label>
