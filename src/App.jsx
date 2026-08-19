@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, listUsers, saveUser, loadCatalog, saveCatalogJob, saveConfig, forceRefresh } from './firebase'
+import { loadCore, loadJobs, loadSizeMap, saveSizeMapEntry, onAuth, signInWithGoogle, signOutUser, getRole, saveMeterReading, correctMeterReading, loadMeterReading, loadPreviousMeterReading, listUsers, saveUser, loadCatalog, saveCatalogJob, saveConfig, forceRefresh } from './firebase'
 
 // Downscale a phone photo to a small JPEG data URL (keeps Firestore docs tiny).
 function compressImage(file, maxDim = 600, quality = 0.6) {
@@ -973,7 +973,7 @@ function Rates({ cfg, onSaved, userEmail }) {
   )
 }
 function Admin({ meta, days, jobs, cfg, userEmail, onSaved, onCatalogSaved, onRatesSaved }) {
-  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} userEmail={userEmail} /><Sep /><MeterEntry /><Sep /><JobCatalog jobs={jobs} onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
+  return (<div><Rates cfg={cfg} onSaved={onRatesSaved} userEmail={userEmail} /><Sep /><MeterEntry role="owner" /><Sep /><JobCatalog jobs={jobs} onSaved={onCatalogSaved} /><Sep /><Users /><Sep /><Assign jobs={jobs} onSaved={onSaved} /><Sep /><Machine meta={meta} days={days} jobs={jobs} /></div>)
 }
 
 /* ---------- shell ---------- */
@@ -1005,26 +1005,93 @@ function Unauthorized({ email }) {
   )
 }
 
-function MeterEntry() {
+// A day's electricity is the DIFFERENCE between two cumulative readings, so a typo doesn't
+// just spoil one day — it moves cost-per-minute and every margin after it. The screen shows
+// the previous reading and the delta a save would produce, and warns before anything that
+// usually means a mistake. Existing dates are never overwritten: the owner corrects them
+// through a separate path that records what changed and why.
+const PLAUSIBLE_UNITS_PER_DAY = 500
+
+function MeterEntry({ role = 'meter' }) {
+  const isOwner = role === 'owner'
   const [date, setDate] = useState(() => businessDateKey())
   const [a, setA] = useState('')
   const [b, setB] = useState('')
   const [note, setNote] = useState('')
+  const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [existing, setExisting] = useState(undefined)   // undefined = still checking
+  const [prev, setPrev] = useState(null)
+
+  useEffect(() => {
+    let live = true
+    setExisting(undefined); setPrev(null); setMsg('')
+    Promise.all([loadMeterReading(date), loadPreviousMeterReading(date)])
+      .then(([cur, before]) => {
+        if (!live) return
+        setExisting(cur)
+        setPrev(before)
+        if (cur) { setA(String(cur.meterA ?? '')); setB(String(cur.meterB ?? '')); setNote(cur.note || '') }
+      })
+      .catch(() => { if (live) { setExisting(null); setMsg('Could not check earlier readings — save is still possible.') } })
+    return () => { live = false }
+  }, [date])
+
+  const ma = Number(a), mb = Number(b)
+  const numbersOk = a !== '' && b !== '' && Number.isFinite(ma) && Number.isFinite(mb) && ma >= 0 && mb >= 0
+  const total = numbersOk ? ma + mb : null
+  const daysApart = prev ? Math.max(1, Math.round(
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${String(prev.date).slice(0, 4)}-${String(prev.date).slice(4, 6)}-${String(prev.date).slice(6, 8)}T00:00:00Z`)) / 86400000)) : null
+  const delta = prev && total != null ? total - (prev.total ?? 0) : null
+
+  const warnings = []
+  if (delta != null && delta < 0) warnings.push('This reading is LOWER than the previous one. A meter only counts up — check the numbers.')
+  if (delta != null && daysApart && delta / daysApart > PLAUSIBLE_UNITS_PER_DAY) {
+    warnings.push(`That is ${Math.round(delta / daysApart)} units a day — unusually high. Check for a mistyped digit.`)
+  }
+  if (date < businessDateKey()) warnings.push('You are entering a past date.')
+
   const save = async () => {
-    if (a === '' || b === '') { setMsg('Enter both meter readings.'); return }
-    const ma = Number(a), mb = Number(b)
-    if (!Number.isFinite(ma) || !Number.isFinite(mb) || ma < 0 || mb < 0) { setMsg('Enter valid meter readings (positive numbers only).'); return }
+    if (!numbersOk) { setMsg('Enter both meter readings as positive numbers.'); return }
+    if (warnings.length && !window.confirm(warnings.join('\n\n') + '\n\nSave anyway?')) return
     setBusy(true); setMsg('')
-    try { await saveMeterReading({ date, meterA: ma, meterB: mb, note }); setMsg('✓ Saved. Thank you!'); setNote('') }
-    catch (e) { setMsg('Could not save: ' + e.message) }
+    try {
+      if (existing) {
+        if (!isOwner) throw new Error('This date already has a reading. Ask the owner to correct it.')
+        if (!reason.trim()) throw new Error('A correction needs a reason.')
+        if (!window.confirm(`Correct ${date}?\n\nWas: ${existing.meterA} + ${existing.meterB} = ${existing.total}\nNow: ${ma} + ${mb} = ${ma + mb}\n\nReason: ${reason.trim()}`)) { setBusy(false); return }
+        await correctMeterReading({ date, meterA: ma, meterB: mb, note, reason })
+        setMsg('✓ Corrected. The change and your reason are recorded.')
+      } else {
+        await saveMeterReading({ date, meterA: ma, meterB: mb, note })
+        setMsg('✓ Saved. Thank you!'); setNote('')
+      }
+      setReason('')
+      setExisting(await loadMeterReading(date).catch(() => existing))
+    } catch (e) { setMsg('Could not save: ' + e.message) }
     finally { setBusy(false) }
   }
   return (
     <div>
       <h2>Daily meter reading</h2>
       <div className="note">Enter today's two meter totals (the full number on each meter).</div>
+      {existing === undefined && <div className="note">Checking earlier readings…</div>}
+      {existing && (
+        <div className="note" style={{ borderLeftColor: isOwner ? '#f59e0b' : '#f87171' }}>
+          <b>{date}</b> already has a reading: {existing.meterA} + {existing.meterB} = <b>{existing.total}</b>
+          {existing.enteredBy ? ` (by ${existing.enteredBy})` : ''}.
+          {isOwner ? ' You can correct it below — a reason is required and the change is recorded.'
+            : ' It cannot be overwritten. Ask the owner if it needs correcting.'}
+        </div>
+      )}
+      {prev && (
+        <div className="note">
+          Previous reading <b>{String(prev.date)}</b>: {prev.meterA} + {prev.meterB} = <b>{prev.total}</b>
+          {delta != null && <> · this entry would add <b>{delta.toFixed(0)} units</b>{daysApart > 1 ? ` over ${daysApart} days` : ''}</>}
+        </div>
+      )}
+      {warnings.map((w) => <div className="note err" key={w}>⚠ {w}</div>)}
       <div className="quote">
         <label>Date
           <input type="date" value={date} max={businessDateKey()} onChange={(e) => setDate(e.target.value)} />
@@ -1038,8 +1105,15 @@ function MeterEntry() {
         <label>Note (optional)
           <input value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
+        {existing && isOwner && (
+          <label>Reason for the correction (required)
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. digit mistyped on entry" />
+          </label>
+        )}
       </div>
-      <button className="btn wa" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save reading'}</button>
+      <button className="btn wa" disabled={busy || existing === undefined || (existing && !isOwner)} onClick={save}>
+        {busy ? 'Saving…' : existing ? (isOwner ? 'Correct reading' : 'Already recorded') : 'Save reading'}
+      </button>
       {msg && <div className="note" style={{ color: msg[0] === '✓' ? '#34d399' : '#f87171' }}>{msg}</div>}
     </div>
   )
@@ -1403,7 +1477,7 @@ function StaffMeter({ user }) {
       <header className="top"><Brand />
         <button className="signout" onClick={signOutUser} title="Sign out" style={{ marginLeft: 'auto' }}>Sign out</button>
       </header>
-      <main><MeterEntry /><div className="note">Signed in as {user.email}</div></main>
+      <main><MeterEntry role="meter" /><div className="note">Signed in as {user.email}</div></main>
     </div>
   )
 }

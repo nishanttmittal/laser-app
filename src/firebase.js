@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
-import { getFirestore, collection, getDocs, doc, getDoc, setDoc, writeBatch, query, where } from 'firebase/firestore'
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, writeBatch, serverTimestamp, query, where } from 'firebase/firestore'
 import { cutoffFromYmd, needFullRead, fullReadBlocked, jobsAfterRead, mergeJobs, WINDOW_DAYS } from './lib/jobcache.js'
 import { readLargeCache, writeLargeCache } from './lib/largeCache.js'
 import { businessDateKey, businessYmd, machineYmd, normalizeJobTime } from './lib/time.js'
@@ -163,13 +163,72 @@ export async function saveCatalogJob({ id, name, photo, sizeKey, fileName, notes
 }
 
 // Staff/owner record the daily meter (two cumulative readings). One doc per date.
+// Meter readings feed laser_days.kWh, which sets cost-per-minute and therefore every margin
+// in the app. A reading is therefore CREATE-ONLY: staff record a missing date, nobody
+// overwrites or deletes one, and an owner correction leaves a permanent record of what
+// changed and why. The rules enforce this server-side; the checks here are for a usable
+// message and to keep the old rule honest until the rules release lands.
+export const meterDocId = (ymd) => `${CARD}_${String(ymd).replace(/-/g, '')}`
+
+export async function loadMeterReading(date) {
+  const s = await getDoc(doc(db, 'laser_meter', meterDocId(date)))
+  return s.exists() ? { id: s.id, ...s.data() } : null
+}
+
+// The most recent reading before `date`, so the screen can show the expected delta. Walks
+// back day by day (single-doc gets) rather than an ordered query — that would need a
+// composite index this project doesn't have, and a missing index fails the whole read.
+export async function loadPreviousMeterReading(date, maxBackDays = 10) {
+  const start = String(date).replace(/-/g, '')
+  const d = new Date(Date.UTC(+start.slice(0, 4), +start.slice(4, 6) - 1, +start.slice(6, 8)))
+  for (let i = 1; i <= maxBackDays; i++) {
+    d.setUTCDate(d.getUTCDate() - 1)
+    const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+    const prev = await loadMeterReading(ymd)   // sequential on purpose: stop at the first hit
+    if (prev) return prev
+  }
+  return null
+}
+
 export async function saveMeterReading({ date, meterA, meterB, note }) {
   const ymd = String(date).replace(/-/g, '')
-  const total = (Number(meterA) || 0) + (Number(meterB) || 0)
-  await setDoc(doc(db, 'laser_meter', `${CARD}_${ymd}`), {
-    cardId: CARD, date: ymd, meterA: Number(meterA) || 0, meterB: Number(meterB) || 0, total,
-    note: note || '', enteredAt: Date.now(),
+  const enteredBy = (auth.currentUser?.email || '').toLowerCase()
+  if (!enteredBy) throw new Error('Sign in again before saving a reading.')
+  const existing = await loadMeterReading(ymd)
+  if (existing) throw new Error(`A reading for ${ymd} already exists. The owner can correct it, but it cannot be overwritten.`)
+  const a = Number(meterA), b = Number(meterB)
+  await setDoc(doc(db, 'laser_meter', meterDocId(ymd)), {
+    cardId: CARD, date: ymd, meterA: a, meterB: b, total: a + b,
+    note: note || '', enteredBy, createdAt: serverTimestamp(), schemaVersion: 2,
+  })
+}
+
+// Owner-only. Never routed through saveMeterReading — a correction must be deliberate and
+// must leave evidence, so it writes the canonical doc and an immutable correction record in
+// one batch: both land or neither does.
+export async function correctMeterReading({ date, meterA, meterB, note, reason }) {
+  const ymd = String(date).replace(/-/g, '')
+  const correctedBy = (auth.currentUser?.email || '').toLowerCase()
+  if (!correctedBy) throw new Error('Sign in again before correcting a reading.')
+  if (!String(reason || '').trim()) throw new Error('A correction needs a reason.')
+  const before = await loadMeterReading(ymd)
+  if (!before) throw new Error(`There is no reading for ${ymd} to correct.`)
+  const a = Number(meterA), b = Number(meterB)
+  const at = Date.now()
+  const operationId = `${at}_${Math.random().toString(36).slice(2, 8)}`
+  const after = { cardId: CARD, date: ymd, meterA: a, meterB: b, total: a + b, note: note || '' }
+
+  const batch = writeBatch(db)
+  batch.set(doc(db, 'laser_meter', meterDocId(ymd)), {
+    ...after, correctedBy, correctedAt: serverTimestamp(), correctionId: operationId, schemaVersion: 2,
   }, { merge: true })
+  batch.set(doc(db, 'laser_meter_corrections', operationId), {
+    operationId, cardId: CARD, meterDocId: meterDocId(ymd), date: ymd,
+    before: { meterA: before.meterA ?? null, meterB: before.meterB ?? null, total: before.total ?? null, note: before.note || '' },
+    after,
+    reason: String(reason).trim(), correctedBy, correctedAt: serverTimestamp(),
+  })
+  await batch.commit()
 }
 
 // ---- once-a-day read gate (data barely changes intraday; saves Firestore quota) ----
