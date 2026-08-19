@@ -178,7 +178,9 @@ export async function loadMeterReading(date) {
 // The most recent reading before `date`, so the screen can show the expected delta. Walks
 // back day by day (single-doc gets) rather than an ordered query — that would need a
 // composite index this project doesn't have, and a missing index fails the whole read.
-export async function loadPreviousMeterReading(date, maxBackDays = 10) {
+// 45 days because readings are entered sporadically (the gap to 2026-08-20 was six weeks);
+// the walk stops at the first hit and is bounded, so it can't grow with the collection.
+export async function loadPreviousMeterReading(date, maxBackDays = 45) {
   const start = String(date).replace(/-/g, '')
   const d = new Date(Date.UTC(+start.slice(0, 4), +start.slice(4, 6) - 1, +start.slice(6, 8)))
   for (let i = 1; i <= maxBackDays; i++) {
